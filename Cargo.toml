@@ -1,0 +1,24 @@
+[package]
+name = "millegrilles_cryptographie"
+version = "2024.2.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+log = "0.4"
+rand = { version = "0.8", default-features = false }
+
+openssl = { version = "0.10.64", features = ["vendored"] }
+x509-parser = { "version" = "0.16.0" }
+multibase = "0.9"
+multicodec = "0.1"
+multihash = "0.19"
+base64 = "0.22"
+base64-url = "2.0"
+blake2 = "0.10"
+chacha20poly1305 = "0.10"
+#dryoc = { version = "0.5.0" }
+##dryoc = { version = "0.4" }
+#zeroize = { version = "1.6.0", default-features = false }
