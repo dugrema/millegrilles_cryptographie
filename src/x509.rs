@@ -56,6 +56,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
 -----END CERTIFICATE-----"#;
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_charger_certificat() {
         let cert_leaf = charger_certificat(CERT_1);
 
