@@ -1,6 +1,6 @@
 use core::str::{from_utf8, FromStr};
 use chrono::{DateTime, Utc};
-use ed25519_dalek::VerifyingKey;
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
 use heapless::{Vec, FnvIndexMap, String};
@@ -9,14 +9,14 @@ use crate::ed25519::{MessageId, verifier};
 use crate::generateur::MessageMilleGrillesBuilder;
 use crate::hachages::{HacheurInterne, HacheurBlake2s256};
 
-const CONST_NOMBRE_CERTIFICATS_MAX: usize = 4;
+pub const CONST_NOMBRE_CERTIFICATS_MAX: usize = 4;
 const CONST_NOMBRE_CLES_MAX: usize = 8;
 
 // La taille du buffer avec no_std (microcontrolleur) est 24kb. Sinon taille max message est 10mb.
-#[cfg(not(feature = "std"))]
-const CONST_BUFFER_MESSAGE: usize = 24 * 1024;
-#[cfg(feature = "std")]
-const CONST_BUFFER_MESSAGE: usize = 10 * 1024 * 1024;
+//#[cfg(not(feature = "std"))]
+pub const CONST_BUFFER_MESSAGE: usize = 24 * 1024;
+// #[cfg(feature = "std")]
+// pub const CONST_BUFFER_MESSAGE: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
@@ -55,6 +55,17 @@ pub struct RoutageMessage<'a> {
     pub partition: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<&'a str>,
+}
+
+impl<'a> RoutageMessage<'a> {
+    pub fn for_action(domaine: &'a str, action: &'a str) -> Self {
+        RoutageMessage {
+            action: Some(action),
+            domaine: Some(domaine),
+            partition: None,
+            user_id: None
+        }
+    }
 }
 
 pub type MessageMilleGrillesRefDefault<'a> = MessageMilleGrillesRef<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
@@ -102,7 +113,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
 
     /// Chaine de certificats en format PEM.
     #[serde(rename = "certificat", skip_serializing_if = "Option::is_none")]
-    pub certificat: Option<Vec<&'a str, CONST_NOMBRE_CERTIFICATS_MAX>>,
+    pub certificat: Option<Vec<&'a str, C>>,
 
     /// Certificat de millegrille (root).
     #[serde(rename = "millegrille", skip_serializing_if = "Option::is_none")]
@@ -114,7 +125,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
 
     #[serde(skip)]
     /// Apres verification, conserve : signature valide, hachage valide
-    contenu_valide: Option<(bool, bool)>,
+    pub contenu_valide: Option<(bool, bool)>,
 }
 
 impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
@@ -131,8 +142,8 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         Ok(message_parsed)
     }
 
-    pub fn builder(kind: MessageKind, contenu: &'a str) -> MessageMilleGrillesBuilder<'a, C> {
-        MessageMilleGrillesBuilder::new(kind, contenu)
+    pub fn builder(kind: MessageKind, contenu: &'a str, estampille: DateTime<Utc>, signing_key: &'a SigningKey) -> MessageMilleGrillesBuilder<'a, C> {
+        MessageMilleGrillesBuilder::new(kind, contenu, estampille, signing_key)
     }
 
     /// Verifie la signature interne du message.

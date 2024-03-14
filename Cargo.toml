@@ -7,7 +7,7 @@ edition = "2021"
 
 [features]
 std = ['alloc']
-alloc = []
+alloc = ['serde_json']
 
 [dependencies]
 heapless = { version = "0.8", features = ["serde"] }
@@ -17,6 +17,7 @@ uuid = { version = "1.7", features = ["serde", "v4"] }
 
 # String representations
 serde = { version = "1.0.197", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0.114", optional = true }
 serde-json-core = "0.5"
 serde_repr = "0.1.18"
 hex = "0.4.3"
