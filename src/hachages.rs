@@ -166,6 +166,7 @@ impl HacheurInterne for HacheurSha2_512 {
 
 #[cfg(test)]
 mod hachage_tests {
+    use core::str::from_utf8;
     use super::*;
 
     use hex;
@@ -184,7 +185,9 @@ mod hachage_tests {
         let data = b"Test Data2";
         let mut hachage = [0u8; 64];  // 64 bytes Blake2b
         hacher_bytes_into(&data[..], HachageCode::Blake2b512, &mut hachage);
-        let hex_hachage = hex::encode(hachage);
+        let mut buf_hachage = [0u8; 128];
+        hex::encode_to_slice(hachage, &mut buf_hachage).unwrap();
+        let hex_hachage = from_utf8(&buf_hachage).unwrap();
         assert_eq!("d63640c6f5533be864dfe4aab925045a26b36cf55d0c1c8427bdc7e31413c5a59ef7ba751d7de85530c23163e811cc13af442fc3d6f8cbd4b2fb42a02132760c", hex_hachage);
     }
 
@@ -193,7 +196,9 @@ mod hachage_tests {
     fn hacheur_blake2s() {
         let data = b"Test Data3";
         let hachage = hacher_bytes(&data[..], HachageCode::Blake2s256);
-        let hex_hachage = hex::encode(hachage);
+        let mut buf_hachage = [0u8; 32];
+        hex::encode_to_slice(hachage, &mut buf_hachage).unwrap();
+        let hex_hachage = from_utf8(buf_hachage).unwrap();
         assert_eq!("65312b4006f89ea5a0d9e8fe41952685fa80504ab2eeb334fa92a4a7d479e93c", hex_hachage);
     }
 
@@ -202,7 +207,9 @@ mod hachage_tests {
         let data = b"Test Data4";
         let mut hachage = [0u8; 32];  // 32 bytes Blake2s
         hacher_bytes_into(&data[..], HachageCode::Blake2s256, &mut hachage);
-        let hex_hachage = hex::encode(hachage);
+        let mut buf_hachage = [0u8; 64];
+        hex::encode_to_slice(hachage, &mut buf_hachage).unwrap();
+        let hex_hachage = from_utf8(&buf_hachage).unwrap();
         assert_eq!("a85426ed4c67864062f314df7a9212bf7b72033ed06c24a4c475e90bc90fd533", hex_hachage);
     }
 
@@ -211,7 +218,9 @@ mod hachage_tests {
     fn hacheur_sha2_256() {
         let data = b"Test Data5";
         let hachage = hacher_bytes(&data[..], HachageCode::Sha2_256);
-        let hex_hachage = hex::encode(hachage);
+        let mut buf_hachage = [0u8; 32];
+        hex::encode_to_slice(hachage, &mut buf_hachage).unwrap();
+        let hex_hachage = from_utf8(buf_hachage).unwrap();
         assert_eq!("b966de3a9f0f40876ff8873bdbdf76d7d67a24453e7dd353cfd4ff9e7805adaa", hex_hachage);
     }
 
@@ -220,7 +229,9 @@ mod hachage_tests {
         let data = b"Test Data5";
         let mut hachage = [0u8; 32];  // 32 bytes Sha2_256
         hacher_bytes_into(&data[..], HachageCode::Sha2_256, &mut hachage);
-        let hex_hachage = hex::encode(hachage);
+        let mut buf_hachage = [0u8; 64];
+        hex::encode_to_slice(hachage, &mut buf_hachage).unwrap();
+        let hex_hachage = from_utf8(&buf_hachage).unwrap();
         assert_eq!("b966de3a9f0f40876ff8873bdbdf76d7d67a24453e7dd353cfd4ff9e7805adaa", hex_hachage);
     }
 
@@ -238,7 +249,9 @@ mod hachage_tests {
         let data = b"Test Data6";
         let mut hachage = [0u8; 64];  // 64 bytes Sha2_512
         hacher_bytes_into(&data[..], HachageCode::Sha2_512, &mut hachage);
-        let hex_hachage = hex::encode(hachage);
+        let mut buf_hachage = [0u8; 128];
+        hex::encode_to_slice(hachage, &mut buf_hachage).unwrap();
+        let hex_hachage = from_utf8(&buf_hachage).unwrap();
         assert_eq!("c44c1fa41850d7cff60cf097da10145a0a757c32c2fcd3737f3e7d69413cd5315680a1122b1c52095973afbf6d6531954f2341b5c1e0aec7b5c5a408b080c0e0", hex_hachage);
     }
 

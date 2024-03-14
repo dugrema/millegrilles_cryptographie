@@ -376,6 +376,8 @@ impl<const C: usize> MessageMilleGrillesBufferAlloc<C> {
 
 }
 
+pub type MessageMilleGrillesBufferHeaplessDefault = MessageMilleGrillesBufferHeapless<CONST_BUFFER_MESSAGE_MIN, CONST_NOMBRE_CERTIFICATS_MAX>;
+
 pub struct MessageMilleGrillesBufferHeapless<const B: usize, const C: usize> {
     /// Buffer dans la stack
     pub buffer: Vec<u8, B>,
