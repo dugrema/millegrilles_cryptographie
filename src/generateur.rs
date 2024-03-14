@@ -189,7 +189,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 mod messages_structs_tests {
     use super::*;
     use log::info;
-    use crate::messages_structs::CONST_BUFFER_MESSAGE;
+    use crate::messages_structs::{CONST_BUFFER_MESSAGE_MIN, MessageMilleGrillesBufferHeapless};
 
     const MESSAGE_1: &str = r#"{
       "id": "d49a375c980f1e70cdea697664610d70048899d1428909fdc29bd29cfc9dd1ca",
@@ -232,7 +232,7 @@ mod messages_structs_tests {
             .routage(routage)
             .certificat(certificat);
 
-        let mut buffer: Vec<u8, CONST_BUFFER_MESSAGE> = Vec::new();
+        let mut buffer: Vec<u8, CONST_BUFFER_MESSAGE_MIN> = Vec::new();
         let message = generateur.build_into(&mut buffer).unwrap();
 
         assert_eq!("6ac34b127bc0996f0ab09f3d6e91c14d65a2930689b3204eb9926a4ad4ee9078", message.id);

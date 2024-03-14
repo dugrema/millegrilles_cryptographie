@@ -14,9 +14,9 @@ const CONST_NOMBRE_CLES_MAX: usize = 8;
 
 // La taille du buffer avec no_std (microcontrolleur) est 24kb. Sinon taille max message est 10mb.
 //#[cfg(not(feature = "std"))]
-pub const CONST_BUFFER_MESSAGE: usize = 24 * 1024;
-// #[cfg(feature = "std")]
-// pub const CONST_BUFFER_MESSAGE: usize = 10 * 1024 * 1024;
+pub const CONST_BUFFER_MESSAGE_MIN: usize = 24 * 1024;
+//#[cfg(feature = "std")]
+//pub const CONST_BUFFER_MESSAGE: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
@@ -345,6 +345,67 @@ impl<'a, const C: usize> From<&'a MessageMilleGrillesRef<'a, C>> for HacheurMess
     }
 }
 
+#[cfg(feature = "std")]
+pub struct MessageMilleGrillesBufferAlloc<const C: usize> {
+    /// Buffer dans la stack
+    pub buffer: std::vec::Vec<u8>,
+}
+
+#[cfg(feature = "std")]
+impl<const C: usize> MessageMilleGrillesBufferAlloc<C> {
+
+    pub fn new() -> MessageMilleGrillesBufferAlloc<C> {
+        MessageMilleGrillesBufferAlloc {
+            buffer: std::vec::Vec::new(),
+        }
+    }
+
+    pub fn parse<'a>(&'a self) -> Result<MessageMilleGrillesRef<'a, C>, &'static str> {
+        let message_str = match from_utf8(&*self.buffer) {
+            Ok(inner) => inner,
+            Err(e) => {
+                error!("parse Erreur from_utf8 : {:?}", e);
+                Err("MessageMilleGrilles::parse:E1")?
+            }
+        };
+        match MessageMilleGrillesRef::parse(message_str) {
+            Ok(inner) => Ok(inner),
+            Err(()) => Err("MessageMilleGrilles::parse:E2")
+        }
+    }
+
+}
+
+pub struct MessageMilleGrillesBufferHeapless<const B: usize, const C: usize> {
+    /// Buffer dans la stack
+    pub buffer: Vec<u8, B>,
+}
+
+impl<const B: usize, const C: usize> MessageMilleGrillesBufferHeapless<B, C> {
+
+    pub fn new() -> MessageMilleGrillesBufferHeapless<B, C> {
+        MessageMilleGrillesBufferHeapless {
+            buffer: Vec::new(),
+        }
+    }
+
+    pub fn parse<'a>(&'a self) -> Result<MessageMilleGrillesRef<'a, C>, &'static str> {
+        let message_str = match from_utf8(&*self.buffer) {
+            Ok(inner) => inner,
+            Err(e) => {
+                error!("parse Erreur from_utf8 : {:?}", e);
+                Err("MessageMilleGrilles::parse:E1")?
+            }
+        };
+        match MessageMilleGrillesRef::parse(message_str) {
+            Ok(inner) => Ok(inner),
+            Err(()) => Err("MessageMilleGrilles::parse:E2")
+        }
+    }
+
+}
+
+
 /// Convertisseur de date i64 en epoch (secondes)
 mod epochseconds {
 
@@ -423,6 +484,25 @@ mod messages_structs_tests {
         let mut message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_1).unwrap();
         assert!(message_parsed.verifier_signature().is_ok());
         assert_eq!(Some((true, true)), message_parsed.contenu_valide);
+    }
+
+    #[test_log::test]
+    fn test_buffer_heapless() {
+        let mut buffer: MessageMilleGrillesBufferHeapless<CONST_BUFFER_MESSAGE_MIN, CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferHeapless::new();
+        buffer.buffer.extend_from_slice(MESSAGE_1.as_bytes());
+        let mut parsed = buffer.parse().unwrap();
+        parsed.verifier_signature().unwrap();
+        debug!("Parsed id: {}", parsed.id);
+    }
+
+    #[cfg(feature = "std")]
+    #[test_log::test]
+    fn test_buffer_alloc() {
+        let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
+        buffer.buffer.extend(MESSAGE_1.as_bytes());
+        let mut parsed = buffer.parse().unwrap();
+        parsed.verifier_signature().unwrap();
+        debug!("Parsed id: {}", parsed.id);
     }
 
 }

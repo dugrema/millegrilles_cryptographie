@@ -1,5 +1,5 @@
 // Pour unit tests avec std, commenter ligne suivante et ajouter --features stc
-#![cfg_attr(test, no_std)]
+//#![cfg_attr(test, no_std)]
 //#![no_std]
 
 extern crate core;
