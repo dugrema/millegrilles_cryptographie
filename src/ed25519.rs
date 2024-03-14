@@ -7,7 +7,7 @@ struct Ed25519PrivateKey {
     verifying_key: VerifyingKey
 }
 
-type MessageId = [u8; 32];
+pub type MessageId = [u8; 32];
 
 pub fn signer_into<'a>(signing_key: &SigningKey, message_id: &MessageId, output_str: &'a mut [u8; 128]) -> &'a str {
     let signature = signing_key.sign(message_id);

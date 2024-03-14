@@ -1,10 +1,14 @@
+use alloc::string::ToString;
+use core::str::{from_utf8, FromStr};
 use chrono::{DateTime, Utc};
 use ed25519_dalek::SigningKey;
-use heapless::String;
 use serde::{Deserialize, Serialize};
-use heapless::{Vec, FnvIndexMap};
-use log::error;
+use serde_repr::{Serialize_repr, Deserialize_repr};
+use heapless::{Vec, FnvIndexMap, String};
+use log::{debug, error};
 use crate::ed25519::verifier;
+use crate::generateur::MessageMilleGrillesBuilder;
+use crate::hachages::{HacheurInterne, HacheurBlake2s256};
 use crate::x509::charger_certificat;
 
 const CONST_NOMBRE_CERTIFICATS_MAX: usize = 4;
@@ -15,6 +19,20 @@ const CONST_NOMBRE_CLES_MAX: usize = 8;
 const CONST_BUFFER_MESSAGE: usize = 24 * 1024;
 #[cfg(feature = "std")]
 const CONST_BUFFER_MESSAGE: usize = 10 * 1024 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
+pub enum MessageKind {
+    Document = 0,
+    Requete = 1,
+    Commande = 2,
+    Transaction = 3,
+    Reponse = 4,
+    Evenement = 5,
+    ReponseChiffree = 6,
+    TransactionMigree = 7,
+    CommandeInterMillegrille = 8,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DechiffrageInterMillegrille<'a> {
@@ -31,8 +49,6 @@ pub struct DechiffrageInterMillegrille<'a> {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoutageMessage<'a> {
-    #[serde(borrow)]
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,7 +75,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     pub estampille: DateTime<Utc>,
 
     /// Kind du message, correspond a enum MessageKind
-    pub kind: u16,
+    pub kind: MessageKind,
 
     /// Contenu du message en format json-string
     pub contenu: &'a str,
@@ -100,7 +116,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     contenu_valide: Option<(bool, bool)>,
 }
 
-impl<'a, const B: usize> MessageMilleGrillesRef<'a, B> {
+impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
 
     fn parse(buffer: &'a str) -> Result<Self, ()> {
         let message_parsed: Self = match serde_json_core::from_slice(buffer.as_bytes()) {
@@ -114,6 +130,152 @@ impl<'a, const B: usize> MessageMilleGrillesRef<'a, B> {
         Ok(message_parsed)
     }
 
+    fn builder(kind: MessageKind, contenu: &'a str) -> MessageMilleGrillesBuilder<'a, C> {
+        MessageMilleGrillesBuilder::new(kind, contenu)
+    }
+}
+
+struct HacheurMessage<'a> {
+    hacheur: HacheurBlake2s256,
+    pub pubkey: &'a str,
+    pub estampille: &'a DateTime<Utc>,
+    pub kind: MessageKind,
+    pub contenu: &'a str,
+    pub routage: Option<&'a RoutageMessage<'a>>,
+    // pub pre_migration: Option<FnvIndexMap<&'a str, Value, 10>>,
+    pub origine: Option<&'a str>,
+    pub dechiffrage: Option<&'a DechiffrageInterMillegrille<'a>>,
+}
+
+impl<'a> HacheurMessage<'a> {
+
+    pub fn new(pubkey: &'a str, estampille: &'a DateTime<Utc>, kind: MessageKind, contenu: &'a str) -> Self {
+        Self {
+            hacheur: HacheurBlake2s256::new(),
+            pubkey,
+            estampille,
+            kind,
+            contenu,
+            routage: None,
+            origine: None,
+            dechiffrage: None,
+        }
+    }
+
+    pub fn routage(mut self, routage: &'a RoutageMessage<'a>) -> Self {
+        self.routage = Some(routage);
+        self
+    }
+
+    pub fn origine(mut self, origine: &'a str) -> Self {
+        self.origine = Some(origine);
+        self
+    }
+
+    pub fn dechiffrage(mut self, dechiffrage: &'a DechiffrageInterMillegrille<'a>) -> Self {
+        self.dechiffrage = Some(dechiffrage);
+        self
+    }
+
+    fn hacher_base(&mut self) {
+        // Hacher le debut d'un array 'json' -> ["pubkey",estampille,kind,"contenu"
+
+        let separateur_bytes= ",".as_bytes();
+        let guillemet_bytes = "\"".as_bytes();
+
+        self.hacheur.update("[\"".as_bytes());
+        self.hacheur.update(self.pubkey.as_bytes());
+        self.hacheur.update(guillemet_bytes);
+
+        let estampille_str = self.estampille.timestamp().to_string();
+        self.hacheur.update(separateur_bytes);
+        self.hacheur.update(estampille_str.as_bytes());
+
+        let kind_int = self.kind.clone() as isize;
+        let kind_str = kind_int.to_string();
+        self.hacheur.update(separateur_bytes);
+        self.hacheur.update(kind_str.as_bytes());
+
+        let mut buffer_char = [0u8; 4];
+        self.hacheur.update(separateur_bytes);
+        self.hacheur.update(guillemet_bytes);
+        for c in self.contenu.chars() {
+            let char2 = c.encode_utf8(&mut buffer_char);
+            self.hacheur.update(char2.as_bytes());
+        }
+        self.hacheur.update(guillemet_bytes);
+    }
+
+    fn hacher_routage(&mut self) {
+        let mut buffer = [0u8; 200];
+        let routage_size = serde_json_core::to_slice(self.routage.unwrap(), &mut buffer).unwrap();
+        debug!("Routage\n{}", from_utf8(&buffer[..routage_size]).unwrap());
+        self.hacheur.update(&buffer[..routage_size]);
+    }
+
+    pub fn hacher(mut self) -> Result<String<64>, &'static str> {
+        // Effectuer le hachage de : ["pubkey", estampille, kind, "contenu"
+        self.hacher_base();
+
+        // Determiner elements additionnels a hacher en fonction du kind
+        match self.kind {
+            MessageKind::Document | MessageKind::Reponse | MessageKind::ReponseChiffree => {
+                // [pubkey, estampille, kind, contenu]
+                // Deja fait, rien a ajouter.
+            },
+            MessageKind::Requete | MessageKind::Commande => {} | MessageKind::Transaction => {} | MessageKind::Evenement => {
+                // [pubkey, estampille, kind, contenu, routage]
+
+                if self.routage.is_none() {
+                    error!("HacheurMessage::hacher Routage requis (None)");
+                    Err("HacheurMessage::hacher:E1")?
+                }
+
+                // Ajouter routage
+                self.hacheur.update(",".as_bytes());
+                self.hacher_routage();
+            },
+            MessageKind::TransactionMigree => {
+                // [pubkey, estampille, kind, contenu, routage, pre_migration]
+                todo!()
+            },
+            MessageKind::CommandeInterMillegrille => {
+                // [pubkey, estampille, kind, contenu, routage, origine, dechiffrage]
+                todo!()
+            },
+        }
+
+        // Fermer array de hachage
+        self.hacheur.update("]".as_bytes());
+
+        let mut hachage = [0u8; 32];
+        self.hacheur.finalize_into(&mut hachage);
+
+        let mut output_str = [0u8; 64];
+        hex::encode_to_slice(hachage, &mut output_str).unwrap();
+        let hachage_str = from_utf8(&output_str).unwrap();
+
+        match String::from_str(hachage_str) {
+            Ok(inner) => Ok(inner),
+            Err(e) => Err("HacheurMessage::hacher:E2")?
+        }
+    }
+
+}
+
+impl<'a, const C: usize> From<&'a MessageMilleGrillesRef<'a, C>> for HacheurMessage<'a> {
+    fn from(value: &'a MessageMilleGrillesRef<'a, C>) -> Self {
+        HacheurMessage {
+            hacheur: HacheurBlake2s256::new(),
+            pubkey: value.pubkey,
+            estampille: &value.estampille,
+            kind: value.kind.clone(),
+            contenu: value.contenu,
+            routage: value.routage.as_ref(),
+            origine: value.origine,
+            dechiffrage: value.dechiffrage.as_ref(),
+        }
+    }
 }
 
 /// Convertisseur de date i64 en epoch (secondes)
@@ -141,6 +303,7 @@ mod epochseconds {
 #[cfg(test)]
 mod messages_structs_tests {
     use super::*;
+    use log::info;
 
     const MESSAGE_1: &str = r#"{
       "id": "d49a375c980f1e70cdea697664610d70048899d1428909fdc29bd29cfc9dd1ca",
@@ -159,11 +322,31 @@ mod messages_structs_tests {
       ]
     }"#;
 
-    #[test]
+    #[test_log::test]
     fn test_parse_message() {
         let message_parsed: MessageMilleGrillesRef<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesRef::parse(MESSAGE_1).unwrap();;
+        info!("test_parse_message\nid: {}\nestampille: {}", message_parsed.id, message_parsed.estampille);
         assert_eq!("d49a375c980f1e70cdea697664610d70048899d1428909fdc29bd29cfc9dd1ca", message_parsed.id);
         assert_eq!("9ff0c6443c9214ab9e8ee2d26b3ba6453e7f4f5f59477343e1b0cd747535005b13d453922faad1388e65850a1970662a69879b1b340767fb9f4bda6202412204", message_parsed.signature);
+        assert_eq!(MessageKind::Evenement, message_parsed.kind);
+    }
+
+    #[test_log::test]
+    fn test_hacher_document() {
+        let pubkey = "d1d9c2146de0e59971249489d971478050d55bc913ddeeba0bf3c60dd5b2cd31";
+        let estampille = DateTime::from_timestamp(1710338722, 0).unwrap();
+        let contenu = "{\"domaine\":\"CoreMaitreDesComptes\",\"exchanges_routing\":null,\"instance_id\":\"f861aafd-5297-406f-8617-f7b8809dd448\",\"primaire\":true,\"reclame_fuuids\":false,\"sous_domaines\":null}";
+        let hacheur = HacheurMessage::new(pubkey, &estampille, MessageKind::Reponse, contenu);
+        let resultat = hacheur.hacher().unwrap();
+        assert_eq!("482f08d4c026e3c1add5f86c77e81e13d96cd1a09df7886852ef33a53f705689", resultat);
+    }
+
+    #[test_log::test]
+    fn test_hacher_evenement() {
+        let message_parsed: MessageMilleGrillesRef<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesRef::parse(MESSAGE_1).unwrap();;
+        let hacheur = HacheurMessage::from(&message_parsed);
+        let resultat = hacheur.hacher().unwrap();
+        assert_eq!(message_parsed.id, resultat);
     }
 
 }
