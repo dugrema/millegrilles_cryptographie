@@ -1,9 +1,11 @@
 use core::str::{from_utf8, FromStr};
 use chrono::{DateTime, Utc};
+use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
 use heapless::{Vec, FnvIndexMap, String};
 use log::{debug, error};
+use crate::ed25519::{MessageId, verifier};
 use crate::generateur::MessageMilleGrillesBuilder;
 use crate::hachages::{HacheurInterne, HacheurBlake2s256};
 
@@ -111,6 +113,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     // pub attachements: Option<FnvIndexMap<&'a str, Value, 32>>,
 
     #[serde(skip)]
+    /// Apres verification, conserve : signature valide, hachage valide
     contenu_valide: Option<(bool, bool)>,
 }
 
@@ -130,6 +133,43 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
 
     pub fn builder(kind: MessageKind, contenu: &'a str) -> MessageMilleGrillesBuilder<'a, C> {
         MessageMilleGrillesBuilder::new(kind, contenu)
+    }
+
+    /// Verifie la signature interne du message.
+    /// Lance une Err si invalide.
+    /// Note : ne valide pas la correspondance au certificat/IDMG ni les dates.
+    pub fn verifier_signature(&mut self) -> Result<(), &'static str> {
+        // Verifier le hachage du message
+        let hacheur = HacheurMessage::from(&*self);
+        let hachage_string = hacheur.hacher()?;
+        if self.id != hachage_string.as_str() {
+            self.contenu_valide = Some((false, false));
+            Err("verifier_signature hachage invalide")?
+        }
+
+        // Extraire cle publique (bytes de pubkey) pour verifier la signature
+        let mut buf_pubkey = [0u8; 32];
+        hex::decode_to_slice(self.pubkey, &mut buf_pubkey).unwrap();
+        let verifying_key = VerifyingKey::from_bytes(&buf_pubkey).unwrap();
+
+        // Extraire la signature (bytes de sig)
+        let mut hachage_bytes = [0u8; 32] as MessageId;
+        if let Err(e) = hex::decode_to_slice(self.id, &mut hachage_bytes) {
+            error!("verifier_signature Erreur hex {:?}", e);
+            self.contenu_valide = Some((false, true));
+            Err("verifier_signature:E1")?
+        }
+
+        // Verifier la signature
+        if ! verifier(&verifying_key, &hachage_bytes, self.signature) {
+            self.contenu_valide = Some((false, true));
+            Err("verifier_signature signature invalide")?
+        }
+
+        // Marquer signature valide=true, hachage valide=true
+        self.contenu_valide = Some((true, true));
+
+        Ok(())
     }
 }
 
@@ -185,12 +225,13 @@ impl<'a> HacheurMessage<'a> {
         self.hacheur.update(self.pubkey.as_bytes());
         self.hacheur.update(guillemet_bytes);
 
+        // L'estampille (epoch secs) prend 10 chars. Mettre 12 pour support futur.
         let estampille_str: String<12> = String::try_from(self.estampille.timestamp()).unwrap();
         self.hacheur.update(separateur_bytes);
         self.hacheur.update(estampille_str.as_bytes());
 
         let kind_int = self.kind.clone() as u8;
-        let kind_str: String<3> = String::try_from(kind_int).unwrap();
+        let kind_str: String<3> = String::try_from(kind_int).unwrap();  // 3 chars pour kind (<100)
         self.hacheur.update(separateur_bytes);
         self.hacheur.update(kind_str.as_bytes());
 
@@ -364,6 +405,13 @@ mod messages_structs_tests {
 
         // Comparer id au hachage - doit correspondre
         assert_eq!(message_parsed.id, resultat);
+    }
+
+    #[test_log::test]
+    fn test_verifier_signature() {
+        let mut message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_1).unwrap();
+        assert!(message_parsed.verifier_signature().is_ok());
+        assert_eq!(Some((true, true)), message_parsed.contenu_valide);
     }
 
 }
