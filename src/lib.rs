@@ -12,6 +12,4 @@ pub mod hachages;
 pub mod generateur;
 pub mod messages_structs;
 
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+pub use ed25519_dalek;

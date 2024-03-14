@@ -15,7 +15,7 @@ const CONST_ELEMS_MAX: usize = 10;
 
 type VecElements<'a> = Vec<&'a [u8], CONST_ELEMS_MAX>;
 
-type MessageMilleGrillesBuilderDefault<'a> = MessageMilleGrillesBuilder<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
+pub type MessageMilleGrillesBuilderDefault<'a> = MessageMilleGrillesBuilder<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
 
 pub struct MessageMilleGrillesBuilder<'a, const C: usize> {
     estampille: DateTime<Utc>,
