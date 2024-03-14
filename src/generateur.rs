@@ -1,6 +1,6 @@
 use core::str::{from_utf8, FromStr};
 use log::error;
-use ed25519_dalek::{SecretKey, SigningKey};
+use ed25519_dalek::SigningKey;
 use heapless::{String, Vec};
 
 use crate::ed25519::{MessageId, signer_into};
@@ -85,7 +85,7 @@ impl GenerateurMessageMilleGrilles {
         // Convertir id en bytes
         let mut id_bytes = [0u8; 32] as MessageId;
         if let Err(e) = hex::decode_to_slice(id.as_bytes(), &mut id_bytes) {
-            error!("Hex error sur id {}", id);
+            error!("Hex error sur id {} : {:?}", id, e);
             Err("signer:E1")?
         }
 
@@ -94,7 +94,7 @@ impl GenerateurMessageMilleGrilles {
 
         match String::from_str(signature_str) {
             Ok(inner) => Ok(inner),
-            Err(e) => Err("signer:E2")?
+            Err(()) => Err("signer:E2")?
         }
     }
 }

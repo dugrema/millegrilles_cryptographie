@@ -1,4 +1,3 @@
-use alloc::string::ToString;
 use core::str::from_utf8;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
@@ -38,7 +37,7 @@ mod ed25519_tests {
 
     use hex;
 
-    #[test]
+    #[test_log::test]
     fn test_signer_into() {
         let data_str = "7497da22a374d7ab092b8a6fa89709739f3fe0d07921a738d376079d4632a102";
         let mut data_bytes = [0u8; 32];
@@ -62,7 +61,7 @@ mod ed25519_tests {
         assert!(!resultat);
     }
 
-    #[test]
+    #[test_log::test]
     #[cfg(feature = "std")]
     fn test_signer_verifier() {
         let data_str = "7497da22a374d7ab092b8a6fa89709739f3fe0d07921a738d376079d4632a102";

@@ -1,5 +1,4 @@
 use x509_cert::der;
-use der::{ Decode, DecodeValue, Encode, FixedTag, Reader, Tagged };
 use x509_cert::Certificate;
 use x509_cert::certificate::TbsCertificateInner;
 
@@ -14,7 +13,10 @@ pub fn charger_certificat(pem: &str) -> TbsCertificateInner {
 
 #[cfg(test)]
 mod x509_tests {
-    use core::str::from_utf8;
+    use core::str::{from_utf8, FromStr};
+    use heapless::String;
+    use log::debug;
+    use x509_cert::der::Encode;
     use super::*;
 
     const CERT_1: &str = r#"-----BEGIN CERTIFICATE-----
@@ -55,28 +57,30 @@ DwXqQ/J2LLYPRUkkETAFBgMrZXADQQBSb0vXhw3pw25qrWoMjqROjawe7/kMlu7p
 MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
 -----END CERTIFICATE-----"#;
 
-    #[test]
-    #[cfg(feature = "std")]
+    #[test_log::test]
     fn test_charger_certificat() {
         let cert_leaf = charger_certificat(CERT_1);
 
         // Extraire information
         let name = cert_leaf.subject;
         for item in name.0 {
-            let item_name = item.to_string();
-            let mut vals = item_name.split("=");
+            let mut buffer_name = [0u8; 100];
+            // let item_name = item.to_string();
+            let name_bytes = item.encode_to_slice(&mut buffer_name).unwrap();
+            let name_string: String<100> = String::from_str(from_utf8(name_bytes).unwrap()).unwrap();
+            let mut vals = name_string.split("=");
             let key = vals.next();
             let value = vals.next();
-            println!("Cert subject {:?} = {:?}", key, value);
+            debug!("Cert subject {:?} = {:?}", key, value);
         }
 
         for item in cert_leaf.extensions.unwrap() {
-            println!("Extension {:?} = {:?}", item.extn_id, from_utf8(item.extn_value.as_bytes()));
+            debug!("Extension {:?} = {:?}", item.extn_id, from_utf8(item.extn_value.as_bytes()));
         }
 
         let pk = cert_leaf.subject_public_key_info;
         let public_key = pk.subject_public_key.as_bytes().unwrap();
-        println!("Cert public key : {:?}", hex::encode(public_key));
+        debug!("Cert public key : {:?}", hex::encode(public_key));
     }
 
 }

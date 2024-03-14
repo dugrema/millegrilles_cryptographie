@@ -1,15 +1,11 @@
-use alloc::string::ToString;
 use core::str::{from_utf8, FromStr};
 use chrono::{DateTime, Utc};
-use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
 use heapless::{Vec, FnvIndexMap, String};
 use log::{debug, error};
-use crate::ed25519::verifier;
 use crate::generateur::MessageMilleGrillesBuilder;
 use crate::hachages::{HacheurInterne, HacheurBlake2s256};
-use crate::x509::charger_certificat;
 
 const CONST_NOMBRE_CERTIFICATS_MAX: usize = 4;
 const CONST_NOMBRE_CLES_MAX: usize = 8;
@@ -187,15 +183,16 @@ impl<'a> HacheurMessage<'a> {
         self.hacheur.update(self.pubkey.as_bytes());
         self.hacheur.update(guillemet_bytes);
 
-        let estampille_str = self.estampille.timestamp().to_string();
+        let estampille_str: String<12> = String::try_from(self.estampille.timestamp()).unwrap();
         self.hacheur.update(separateur_bytes);
         self.hacheur.update(estampille_str.as_bytes());
 
-        let kind_int = self.kind.clone() as isize;
-        let kind_str = kind_int.to_string();
+        let kind_int = self.kind.clone() as u8;
+        let kind_str: String<3> = String::try_from(kind_int).unwrap();
         self.hacheur.update(separateur_bytes);
         self.hacheur.update(kind_str.as_bytes());
 
+        // Iterer sur les chars, effectue l'escape des characteres correctement.
         let mut buffer_char = [0u8; 4];
         self.hacheur.update(separateur_bytes);
         self.hacheur.update(guillemet_bytes);
@@ -211,6 +208,13 @@ impl<'a> HacheurMessage<'a> {
         let routage_size = serde_json_core::to_slice(self.routage.unwrap(), &mut buffer).unwrap();
         debug!("Routage\n{}", from_utf8(&buffer[..routage_size]).unwrap());
         self.hacheur.update(&buffer[..routage_size]);
+    }
+
+    fn hacher_dechiffrage(&mut self) {
+        let mut buffer = [0u8; 2000];
+        let dechiffrage_size = serde_json_core::to_slice(self.routage.unwrap(), &mut buffer).unwrap();
+        debug!("Dechiffrage\n{}", from_utf8(&buffer[..dechiffrage_size]).unwrap());
+        self.hacheur.update(&buffer[..dechiffrage_size]);
     }
 
     pub fn hacher(mut self) -> Result<String<64>, &'static str> {
@@ -237,11 +241,20 @@ impl<'a> HacheurMessage<'a> {
             },
             MessageKind::TransactionMigree => {
                 // [pubkey, estampille, kind, contenu, routage, pre_migration]
-                todo!()
+                panic!("Not implemented")
             },
             MessageKind::CommandeInterMillegrille => {
                 // [pubkey, estampille, kind, contenu, routage, origine, dechiffrage]
-                todo!()
+                if self.routage.is_none() || self.origine.is_none() || self.dechiffrage.is_none() {
+                    error!("HacheurMessage::hacher Routage/origine/dechiffrage requis (None)");
+                    Err("HacheurMessage::hacher:E2")?
+                }
+                self.hacheur.update(",".as_bytes());
+                self.hacher_routage();
+                self.hacheur.update(",".as_bytes());
+                self.hacheur.update(self.origine.unwrap().as_bytes());
+                self.hacheur.update(",".as_bytes());
+                self.hacher_dechiffrage();
             },
         }
 
@@ -257,7 +270,7 @@ impl<'a> HacheurMessage<'a> {
 
         match String::from_str(hachage_str) {
             Ok(inner) => Ok(inner),
-            Err(e) => Err("HacheurMessage::hacher:E2")?
+            Err(()) => Err("HacheurMessage::hacher:E2")?
         }
     }
 
@@ -324,7 +337,7 @@ mod messages_structs_tests {
 
     #[test_log::test]
     fn test_parse_message() {
-        let message_parsed: MessageMilleGrillesRef<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesRef::parse(MESSAGE_1).unwrap();;
+        let message_parsed: MessageMilleGrillesRef<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesRef::parse(MESSAGE_1).unwrap();
         info!("test_parse_message\nid: {}\nestampille: {}", message_parsed.id, message_parsed.estampille);
         assert_eq!("d49a375c980f1e70cdea697664610d70048899d1428909fdc29bd29cfc9dd1ca", message_parsed.id);
         assert_eq!("9ff0c6443c9214ab9e8ee2d26b3ba6453e7f4f5f59477343e1b0cd747535005b13d453922faad1388e65850a1970662a69879b1b340767fb9f4bda6202412204", message_parsed.signature);
@@ -343,9 +356,11 @@ mod messages_structs_tests {
 
     #[test_log::test]
     fn test_hacher_evenement() {
-        let message_parsed: MessageMilleGrillesRef<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesRef::parse(MESSAGE_1).unwrap();;
+        let message_parsed: MessageMilleGrillesRef<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesRef::parse(MESSAGE_1).unwrap();
         let hacheur = HacheurMessage::from(&message_parsed);
         let resultat = hacheur.hacher().unwrap();
+
+        // Comparer id au hachage - doit correspondre
         assert_eq!(message_parsed.id, resultat);
     }
 
