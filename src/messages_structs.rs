@@ -55,6 +55,8 @@ pub struct RoutageMessage<'a> {
     pub user_id: Option<&'a str>,
 }
 
+pub type MessageMilleGrillesRefDefault<'a> = MessageMilleGrillesRef<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
+
 #[derive(Clone, Serialize, Deserialize)]
 /// Structure d'un message MilleGrille. Tous les elements sont en reference
 /// a des sources externes (e.g. buffer);
@@ -114,7 +116,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
 
 impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
 
-    fn parse(buffer: &'a str) -> Result<Self, ()> {
+    pub fn parse(buffer: &'a str) -> Result<Self, ()> {
         let message_parsed: Self = match serde_json_core::from_slice(buffer.as_bytes()) {
             Ok(inner) => inner.0,
             Err(e) => {
@@ -126,21 +128,21 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         Ok(message_parsed)
     }
 
-    fn builder(kind: MessageKind, contenu: &'a str) -> MessageMilleGrillesBuilder<'a, C> {
+    pub fn builder(kind: MessageKind, contenu: &'a str) -> MessageMilleGrillesBuilder<'a, C> {
         MessageMilleGrillesBuilder::new(kind, contenu)
     }
 }
 
-struct HacheurMessage<'a> {
+pub struct HacheurMessage<'a> {
     hacheur: HacheurBlake2s256,
-    pub pubkey: &'a str,
-    pub estampille: &'a DateTime<Utc>,
-    pub kind: MessageKind,
-    pub contenu: &'a str,
-    pub routage: Option<&'a RoutageMessage<'a>>,
-    // pub pre_migration: Option<FnvIndexMap<&'a str, Value, 10>>,
-    pub origine: Option<&'a str>,
-    pub dechiffrage: Option<&'a DechiffrageInterMillegrille<'a>>,
+    pubkey: &'a str,
+    estampille: &'a DateTime<Utc>,
+    kind: MessageKind,
+    contenu: &'a str,
+    routage: Option<&'a RoutageMessage<'a>>,
+    // pre_migration: Option<FnvIndexMap<&'a str, Value, 10>>,
+    origine: Option<&'a str>,
+    dechiffrage: Option<&'a DechiffrageInterMillegrille<'a>>,
 }
 
 impl<'a> HacheurMessage<'a> {
@@ -337,7 +339,7 @@ mod messages_structs_tests {
 
     #[test_log::test]
     fn test_parse_message() {
-        let message_parsed: MessageMilleGrillesRef<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesRef::parse(MESSAGE_1).unwrap();
+        let message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_1).unwrap();
         info!("test_parse_message\nid: {}\nestampille: {}", message_parsed.id, message_parsed.estampille);
         assert_eq!("d49a375c980f1e70cdea697664610d70048899d1428909fdc29bd29cfc9dd1ca", message_parsed.id);
         assert_eq!("9ff0c6443c9214ab9e8ee2d26b3ba6453e7f4f5f59477343e1b0cd747535005b13d453922faad1388e65850a1970662a69879b1b340767fb9f4bda6202412204", message_parsed.signature);
@@ -356,7 +358,7 @@ mod messages_structs_tests {
 
     #[test_log::test]
     fn test_hacher_evenement() {
-        let message_parsed: MessageMilleGrillesRef<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesRef::parse(MESSAGE_1).unwrap();
+        let message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_1).unwrap();
         let hacheur = HacheurMessage::from(&message_parsed);
         let resultat = hacheur.hacher().unwrap();
 
