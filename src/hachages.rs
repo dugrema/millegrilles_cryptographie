@@ -196,9 +196,9 @@ mod hachage_tests {
     fn hacheur_blake2s() {
         let data = b"Test Data3";
         let hachage = hacher_bytes(&data[..], HachageCode::Blake2s256);
-        let mut buf_hachage = [0u8; 32];
+        let mut buf_hachage = [0u8; 64];
         hex::encode_to_slice(hachage, &mut buf_hachage).unwrap();
-        let hex_hachage = from_utf8(buf_hachage).unwrap();
+        let hex_hachage = from_utf8(&buf_hachage).unwrap();
         assert_eq!("65312b4006f89ea5a0d9e8fe41952685fa80504ab2eeb334fa92a4a7d479e93c", hex_hachage);
     }
 
@@ -218,9 +218,9 @@ mod hachage_tests {
     fn hacheur_sha2_256() {
         let data = b"Test Data5";
         let hachage = hacher_bytes(&data[..], HachageCode::Sha2_256);
-        let mut buf_hachage = [0u8; 32];
+        let mut buf_hachage = [0u8; 64];
         hex::encode_to_slice(hachage, &mut buf_hachage).unwrap();
-        let hex_hachage = from_utf8(buf_hachage).unwrap();
+        let hex_hachage = from_utf8(&buf_hachage).unwrap();
         assert_eq!("b966de3a9f0f40876ff8873bdbdf76d7d67a24453e7dd353cfd4ff9e7805adaa", hex_hachage);
     }
 
