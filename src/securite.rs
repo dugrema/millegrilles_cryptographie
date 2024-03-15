@@ -1,4 +1,7 @@
-#[derive(Clone, Debug)]
+use serde_repr::{Deserialize_repr, Serialize_repr};
+
+#[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
 pub enum Securite {
     L1Public = 1,
     L2Prive = 2,
@@ -21,6 +24,17 @@ impl TryFrom<&str> for Securite {
             L3_PROTEGE => Ok(Securite::L3Protege),
             L4_SECURE => Ok(Securite::L4Secure),
             _ => Err("niveau de securite invalide")?
+        }
+    }
+}
+
+impl Into<&str> for Securite {
+    fn into(self) -> &'static str {
+        match self {
+            Securite::L1Public => L1_PUBLIC,
+            Securite::L2Prive => L2_PRIVE,
+            Securite::L3Protege => L3_PROTEGE,
+            Securite::L4Secure => L4_SECURE
         }
     }
 }

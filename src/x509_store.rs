@@ -14,6 +14,104 @@ use openssl::x509::X509;
 use serde::{Deserialize, Serialize, Serializer};
 use crate::x509::{calculer_fingerprint, charger_certificat, charger_enveloppe, EnveloppeCertificat, EnveloppePrivee, ExtensionsMilleGrille, verifier_certificat};
 
+pub fn charger_enveloppe(pem: &str, store: Option<&X509Store>, ca_pem: Option<&str>)
+                         -> Result<EnveloppeCertificat, ErrorStack>
+{
+    let chaine_x509 = charger_chaine(pem)?;
+
+    let millegrille = match ca_pem {
+        Some(c) => X509::stack_from_pem(c.as_bytes())?.pop(),
+        None => None
+    };
+
+    // Calculer fingerprint du certificat
+    let cert: &X509 = chaine_x509.get(0).unwrap();
+    // let fingerprint = calculer_fingerprint(cert).expect("fingerprint");
+
+    // Pousser les certificats intermediaires (pas le .0, ni le dernier)
+    let mut intermediaire: Stack<X509> = Stack::new()?;
+    for cert_idx in 1..chaine_x509.len() {
+        let _ = intermediaire.push(chaine_x509.get(cert_idx).expect("charger_enveloppe intermediaire").to_owned());
+    }
+
+    // Verifier la chaine avec la date courante.
+    let mut presentement_valide = false;
+    match store {
+        Some(s) => {
+            presentement_valide = verifier_certificat(cert, &intermediaire, s)?;
+        },
+        None => (),
+    }
+
+    // let cle_publique = cert.public_key().unwrap();
+    // let cert_der = cert.to_der().expect("Erreur exporter cert format DEV");
+    // let extensions = parse_x509(cert_der.as_slice()).expect("Erreur preparation extensions X509 MilleGrille");
+
+    Ok(EnveloppeCertificat {
+        certificat: cert.clone(),
+        chaine: chaine_x509,
+        millegrille,
+    })
+}
+
+pub fn verifier_certificat(cert: &X509, chaine_pem: &StackRef<X509>, store: &X509Store) -> Result<bool, ErrorStack> {
+    let mut store_context = X509StoreContext::new()?;
+    store_context.init(store, cert, chaine_pem, |c| {
+        let mut resultat = c.verify_cert()?;
+
+        if resultat == true {
+            // Verifier que l'organisation du certificat correspond au idmg du CA
+            let organization = match cert.subject_name().entries_by_nid(Nid::ORGANIZATIONNAME).next() {
+                Some(o) => {
+                    let data = o.data().as_slice().to_vec();
+                    match String::from_utf8(data) {
+                        Ok(o) => Some(o),
+                        Err(_) => None,
+                    }
+                },
+                None => None,
+            };
+
+            if let Some(organization) = organization {
+                // Verifier le idmg
+                match c.chain() {
+                    Some(s) => {
+                        match s.iter().last() {
+                            Some(ca) => {
+                                match calculer_idmg_ref(ca) {
+                                    Ok(idmg_ca) => {
+                                        debug!("Sujet organization cert : {}, idmg cert CA {} trouve durant validation : {:?}", organization, idmg_ca, ca.subject_name());
+                                        resultat = idmg_ca == organization;
+                                    },
+                                    Err(e) => {
+                                        warn!("Erreur calcul idmg CA : {:?}", e);
+                                        resultat = false;
+                                    }
+                                };
+                            },
+                            None => {
+                                warn!("Cert CA absent, verification false");
+                                resultat = false;
+                            }
+                        }
+                    },
+                    None => {
+                        warn!("La chaine n'a pas ete produite suite a la validation, verif idmg impossible");
+                        resultat = false;
+                    },
+                };
+            } else {
+                warn!("Organization manquante du certificat, on le considere invalide");
+                resultat = false;
+            }
+        } else {
+            debug!("Certificat store considere le certificat invalide");
+        }
+
+        Ok(resultat)
+    })
+}
+
 pub fn build_store_path(ca_path: &Path) -> Result<ValidateurX509Impl, ErrorStack> {
     let ca_pem: String = read_to_string(ca_path).unwrap();
     let ca_cert: X509 = charger_certificat(&ca_pem)?;

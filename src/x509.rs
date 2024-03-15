@@ -51,124 +51,19 @@ pub fn charger_chaine(pem: &str) -> Result<Vec<X509>, ErrorStack> {
     stack
 }
 
-pub fn charger_enveloppe(pem: &str, store: Option<&X509Store>, ca_pem: Option<&str>)
-    -> Result<EnveloppeCertificat, ErrorStack>
-{
-    let chaine_x509 = charger_chaine(pem)?;
-
-    let millegrille = match ca_pem {
-        Some(c) => X509::stack_from_pem(c.as_bytes())?.pop(),
-        None => None
-    };
-
-    // Calculer fingerprint du certificat
-    let cert: &X509 = chaine_x509.get(0).unwrap();
-    let fingerprint = calculer_fingerprint(cert).expect("fingerprint");
-
-    // Pousser les certificats intermediaires (pas le .0, ni le dernier)
-    let mut intermediaire: Stack<X509> = Stack::new()?;
-    for cert_idx in 1..chaine_x509.len() {
-        let _ = intermediaire.push(chaine_x509.get(cert_idx).expect("charger_enveloppe intermediaire").to_owned());
-    }
-
-    // Verifier la chaine avec la date courante.
-    let mut presentement_valide = false;
-    match store {
-        Some(s) => {
-            presentement_valide = verifier_certificat(cert, &intermediaire, s)?;
-        },
-        None => (),
-    }
-
-    let cle_publique = cert.public_key().unwrap();
-
-    let cert_der = cert.to_der().expect("Erreur exporter cert format DEV");
-    let extensions = parse_x509(cert_der.as_slice()).expect("Erreur preparation extensions X509 MilleGrille");
-
-    Ok(EnveloppeCertificat {
-        certificat: cert.clone(),
-        chaine: chaine_x509,
-        cle_publique,
-        intermediaire,
-        millegrille,
-        presentement_valide,
-        fingerprint,
-        date_enveloppe: Instant::now(),
-        extensions_millegrille: extensions,
-    })
-}
-
-pub fn verifier_certificat(cert: &X509, chaine_pem: &StackRef<X509>, store: &X509Store) -> Result<bool, ErrorStack> {
-    let mut store_context = X509StoreContext::new()?;
-    store_context.init(store, cert, chaine_pem, |c| {
-        let mut resultat = c.verify_cert()?;
-
-        if resultat == true {
-            // Verifier que l'organisation du certificat correspond au idmg du CA
-            let organization = match cert.subject_name().entries_by_nid(Nid::ORGANIZATIONNAME).next() {
-                Some(o) => {
-                    let data = o.data().as_slice().to_vec();
-                    match String::from_utf8(data) {
-                        Ok(o) => Some(o),
-                        Err(_) => None,
-                    }
-                },
-                None => None,
-            };
-
-            if let Some(organization) = organization {
-                // Verifier le idmg
-                match c.chain() {
-                    Some(s) => {
-                        match s.iter().last() {
-                            Some(ca) => {
-                                match calculer_idmg_ref(ca) {
-                                    Ok(idmg_ca) => {
-                                        debug!("Sujet organization cert : {}, idmg cert CA {} trouve durant validation : {:?}", organization, idmg_ca, ca.subject_name());
-                                        resultat = idmg_ca == organization;
-                                    },
-                                    Err(e) => {
-                                        warn!("Erreur calcul idmg CA : {:?}", e);
-                                        resultat = false;
-                                    }
-                                };
-                            },
-                            None => {
-                                warn!("Cert CA absent, verification false");
-                                resultat = false;
-                            }
-                        }
-                    },
-                    None => {
-                        warn!("La chaine n'a pas ete produite suite a la validation, verif idmg impossible");
-                        resultat = false;
-                    },
-                };
-            } else {
-                warn!("Organization manquante du certificat, on le considere invalide");
-                resultat = false;
-            }
-        } else {
-            debug!("Certificat store considere le certificat invalide");
-        }
-
-        Ok(resultat)
-    })
-}
-
-pub fn calculer_fingerprint(cert: &X509) -> Result<String, String> {
+pub fn calculer_fingerprint(cert: &X509) -> Result<String, ErrorStack> {
     // refact 2023.5.0 - le fingerprint (pubkey) correspond a la cle publique
     // note : risque de poisoning si cle privee est reutilisee dans plusieurs certificats
     match cert.public_key() {
         Ok(inner) => calculer_fingerprint_pk(&inner),
-        Err(e) => Err(format!("certificats.calculer_fingerprint Erreur public_key() {:?}", e))?
+        Err(e) => Err(e)
     }
 }
 
-pub fn calculer_fingerprint_pk(pk: &PKey<Public>) -> Result<String, String> {
+pub fn calculer_fingerprint_pk(pk: &PKey<Public>) -> Result<String, ErrorStack> {
     let cle_publique = match pk.raw_public_key() {
         Ok(inner) => inner,
-        Err(e) => Err(format!("certificats.calculer_fingerprint_pk Erreur raw_public_key() {:?}", e))?
+        Err(e) => Err(e)?
     };
     let cle_hex = hex::encode(cle_publique);
     Ok(cle_hex)
@@ -217,53 +112,17 @@ pub fn calculer_idmg_ref(cert: &X509Ref) -> Result<String, String> {
     Ok(val)
 }
 
+#[derive(Clone)]
 pub struct EnveloppeCertificat {
-    certificat: X509,
-    chaine: Vec<X509>,
-    pub cle_publique: PKey<Public>,
-    intermediaire: Stack<X509>,
-    millegrille: Option<X509>,
-    pub presentement_valide: bool,
-    pub fingerprint: String,
-    date_enveloppe: Instant,
-    extensions_millegrille: ExtensionsMilleGrille,
+    pub certificat: X509,
+    pub chaine: Vec<X509>,
+    pub millegrille: Option<X509>,
 }
 
 impl EnveloppeCertificat {
 
-    /// Retourne le certificat de l'enveloppe.
-    pub fn certificat(&self) -> &X509 { &self.certificat }
-
-    pub fn presentement_valide(&self) -> bool { self.presentement_valide }
-
-    pub fn fingerprint(&self) -> &String { &self.fingerprint }
-
-    pub fn get_pem_vec(&self) -> Vec<FingerprintCert> {
-        let mut vec = Vec::new();
-        for c in &self.chaine {
-            let p = String::from_utf8(c.to_pem().unwrap()).unwrap();
-            let fp = calculer_fingerprint(c).unwrap();
-            vec.push(FingerprintCert{fingerprint: fp, pem: p});
-        }
-        vec
-    }
-
-    /// Extrait les pems et retourne dans un Vec<String>
-    pub fn get_pem_vec_extracted(&self) -> Vec<String> {
-        self.get_pem_vec().iter().map(|p| p.pem.clone()).collect()
-    }
-
-    pub fn get_pem_ca(&self) -> Result<Option<String>,String> {
-        match &self.millegrille {
-            Some(c) => match c.to_pem() {
-                Ok(c) => match String::from_utf8(c) {
-                    Ok(c) => Ok(Some(c)),
-                    Err(e) => Err(format!("certificats.get_pem_ca Erreur conversion pem CA : {:?}", e))
-                },
-                Err(e) => Err(format!("certificats.get_pem_ca Erreur conversion pem CA : {:?}", e))
-            },
-            None => Ok(None)
-        }
+    pub fn fingerprint(&self) -> Result<String, ErrorStack> {
+        self.fingerprint_pk()
     }
 
     pub fn not_valid_before(&self) -> Result<DateTime<Utc>, String> {
@@ -289,7 +148,6 @@ impl EnveloppeCertificat {
             let data = entry.data().as_slice().to_vec();
             return Ok(String::from_utf8(data).expect("Erreur chargement IDMG"))
         }
-
         Err("IDMG non present sur certificat (OrganizationName)".into())
     }
 
@@ -356,8 +214,8 @@ impl EnveloppeCertificat {
         }
     }
 
-    pub fn fingerprint_pk(&self) -> Result<String, String> {
-        let pk = self.certificat.public_key().expect("Erreur extraction cle publique pour fingerprint_pk");
+    pub fn fingerprint_pk(&self) -> Result<String, ErrorStack> {
+        let pk = self.certificat.public_key()?;
         calculer_fingerprint_pk(&pk)
     }
 
@@ -372,178 +230,51 @@ impl EnveloppeCertificat {
         }
     }
 
-    pub fn publickey_bytes_encoding(&self, base: Base, strip: bool) -> Result<String, String> {
-        let pk = match self.certificat.public_key() {
-            Ok(pk) => pk,
-            Err(e) => Err(format!("certificat.public_bytes Erreur public_key() {:?}", e))?
-        };
-        match pk.raw_public_key() {
-            Ok(b) => {
-                let encoded_string: String = multibase::encode(base, b);
-                match strip {
-                    true => {
-                        let encoded_remove_id = &encoded_string[1..];
-                        Ok(encoded_remove_id.to_string())
-                    },
-                    false => Ok(encoded_string)
-                }
-            },
-            Err(e) => Err(format!("certificat.public_bytes Erreur raw_private_key() {:?}", e))?
-        }
-    }
-
-    /// Retourne la cle publique pour le certificat (leaf) et le CA (millegrille)
-    /// Utilise pour chiffrage de cles secretes
-    pub fn fingerprint_cert_publickeys(&self) -> Result<Vec<FingerprintCertPublicKey>, Box<dyn Error>> {
-        let cert_leaf = self.chaine.get(0).expect("leaf");
-        let fp_leaf = calculer_fingerprint(cert_leaf)?;
-        let fpleaf = FingerprintCertPublicKey { fingerprint: fp_leaf, public_key: cert_leaf.public_key()?, est_cle_millegrille: false };
-
-        let cert_mg = self.chaine.last().expect("cert inter");
-        let fp_mg = calculer_fingerprint(cert_mg)?;
-        let fpmg = FingerprintCertPublicKey { fingerprint: fp_mg, public_key: cert_mg.public_key()?, est_cle_millegrille: false };
-
-        Ok(vec!(fpleaf, fpmg))
-    }
-
-    pub fn get_exchanges(&self) -> Result<&Option<Vec<String>>, String> { Ok(&self.extensions_millegrille.exchanges) }
-    pub fn get_roles(&self) -> Result<&Option<Vec<String>>, String> { Ok(&self.extensions_millegrille.roles) }
-    pub fn get_domaines(&self) -> Result<&Option<Vec<String>>, String> { Ok(&self.extensions_millegrille.domaines) }
-    pub fn get_user_id(&self) -> Result<&Option<String>, String> { Ok(&self.extensions_millegrille.user_id) }
-    pub fn get_delegation_globale(&self) -> Result<&Option<String>, String> { Ok(&self.extensions_millegrille.delegation_globale) }
-    pub fn get_delegation_domaines(&self) -> Result<&Option<Vec<String>>, String> { Ok(&self.extensions_millegrille.delegation_domaines) }
-
-}
-
-impl Clone for EnveloppeCertificat {
-
-    fn clone(&self) -> Self {
-
-        let mut intermediaire: Stack<X509> = Stack::new().expect("stack");
-        for cert in &self.intermediaire {
-            intermediaire.push(cert.to_owned()).expect("push");
-        }
-
-        EnveloppeCertificat {
-            certificat: self.certificat.clone(),
-            chaine: self.chaine.clone(),
-            cle_publique: self.cle_publique.clone(),
-            intermediaire,
-            millegrille: self.millegrille.clone(),
-            presentement_valide: self.presentement_valide,
-            fingerprint: self.fingerprint.clone(),
-            date_enveloppe: self.date_enveloppe.clone(),
-            extensions_millegrille: self.extensions_millegrille.clone(),
-        }
-    }
-
-    fn clone_from(&mut self, source: &Self) {
-
-        let mut intermediaire = Stack::new().expect("stack");
-        for cert in &source.intermediaire {
-            intermediaire.push(cert.to_owned()).expect("push");
-        }
-
-        self.certificat = source.certificat.clone();
-        self.chaine = source.chaine.clone();
-        self.cle_publique = source.cle_publique.clone();
-        self.intermediaire = intermediaire;
-        self.millegrille = source.millegrille.clone();
-        self.presentement_valide = source.presentement_valide;
-        self.fingerprint = source.fingerprint.clone();
-        self.date_enveloppe = source.date_enveloppe.clone();
-        self.extensions_millegrille = source.extensions_millegrille.clone();
-    }
-
 }
 
 impl Debug for EnveloppeCertificat {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Enveloppe certificat {}", self.fingerprint)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct FingerprintCert {
-    pub fingerprint: String,
-    pub pem: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct FingerprintCertPublicKey {
-    pub fingerprint: String,
-    pub public_key: PKey<Public>,
-    pub est_cle_millegrille: bool,
-}
-
-impl FingerprintCertPublicKey {
-    pub fn new(fingerprint: String, public_key: PKey<Public>, est_cle_millegrille: bool) -> Self {
-        FingerprintCertPublicKey { fingerprint, public_key, est_cle_millegrille }
+        match self.fingerprint_pk() {
+            Ok(inner) => write!(f, "Certificat pk:{}", inner),
+            Err(_) => write!(f, "Enveloppe certificat (no fingerprint)")
+        }
     }
 }
 
 /// Enveloppe avec cle pour cle et certificat combine
 #[derive(Clone)]
 pub struct EnveloppePrivee {
-    pub enveloppe: Arc<EnveloppeCertificat>,
-    cle_privee: PKey<Private>,
-    chaine_pem: Vec<String>,
-    pub clecert_pem: String,
-    pub ca: String,
-    pub enveloppe_ca: Arc<EnveloppeCertificat>,
+    pub enveloppe_pub: EnveloppeCertificat,
+    pub enveloppe_ca: EnveloppeCertificat,
+    pub cle_privee: PKey<Private>,
+    pub chaine_pem: Vec<String>,
+    pub ca_pem: String,
+    pub cle_privee_pem: String,
 }
-
 
 impl EnveloppePrivee {
 
     pub fn new(
-        enveloppe: Arc<EnveloppeCertificat>,
+        enveloppe_pub: EnveloppeCertificat,
+        enveloppe_ca: EnveloppeCertificat,
         cle_privee: PKey<Private>,
         chaine_pem: Vec<String>,
-        clecert_pem: String,
-        ca: String,
-        enveloppe_ca: Arc<EnveloppeCertificat>
+        ca_pem: String,
+        cle_privee_pem: String,
     ) -> Self {
-        Self { enveloppe, cle_privee, chaine_pem, clecert_pem, ca, enveloppe_ca }
+        Self { enveloppe_pub, enveloppe_ca, cle_privee, chaine_pem, ca_pem, cle_privee_pem }
     }
 
-    pub fn certificat(&self) -> &X509 { &self.enveloppe.certificat }
-
-    pub fn chaine_pem(&self) -> &Vec<String> { &self.chaine_pem }
-
-    pub fn cle_privee(&self) -> &PKey<Private> { &self.cle_privee }
-
-    pub fn cle_publique(&self) -> &PKey<Public> { &self.enveloppe.cle_publique }
-
-    pub fn presentement_valide(&self) -> bool { self.enveloppe.presentement_valide }
-
-    pub fn fingerprint(&self) -> &String { self.enveloppe.fingerprint() }
-
-    pub fn intermediaire(&self) -> &Stack<X509> { &self.enveloppe.intermediaire }
-
-    pub fn get_pem_vec(&self) -> Vec<FingerprintCert> { self.enveloppe.get_pem_vec() }
-
-    pub fn idmg(&self) -> Result<String, String> { self.enveloppe.idmg() }
-
-    pub fn subject(&self) -> Result<HashMap<String, String>, String> { self.enveloppe.subject() }
-
-    pub fn not_valid_before(&self) -> Result<DateTime<Utc>, String> { self.enveloppe.not_valid_before() }
-
-    pub fn not_valid_after(&self) -> Result<DateTime<Utc>, String> { self.enveloppe.not_valid_after() }
-
-    pub fn fingerprint_pk(&self) -> Result<String, String> { self.enveloppe.fingerprint_pk() }
-    pub fn get_exchanges(&self) -> Result<&Option<Vec<String>>, String> { self.enveloppe.get_exchanges() }
-    pub fn get_roles(&self) -> Result<&Option<Vec<String>>, String> { self.enveloppe.get_roles() }
-    pub fn get_domaines(&self) -> Result<&Option<Vec<String>>, String> {  self.enveloppe.get_domaines() }
-    pub fn get_user_id(&self) -> Result<&Option<String>, String> {  self.enveloppe.get_user_id() }
-    pub fn get_delegation_globale(&self) -> Result<&Option<String>, String> {  self.enveloppe.get_delegation_globale() }
-    pub fn get_delegation_domaines(&self) -> Result<&Option<Vec<String>>, String> {  self.enveloppe.get_delegation_domaines() }
+    pub fn fingerprint(&self) -> Result<String, ErrorStack> {
+        let pk = self.enveloppe_pub.certificat.public_key()?;
+        calculer_fingerprint_pk(&pk)
+    }
 
 }
 
 impl Debug for EnveloppePrivee {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("Enveloppe privee {}", self.fingerprint()).as_str())
+        f.write_str(format!("Enveloppe privee {}", self.fingerprint()?).as_str())
     }
 }
 
@@ -600,6 +331,7 @@ pub struct ExtensionsMilleGrille {
     delegation_globale: Option<String>,
     delegation_domaines: Option<Vec<String>>,
 }
+
 impl ExtensionsMilleGrille {
     /// Retourne le plus haut niveau de securite (echange) supporte par ce certificat
     pub fn exchange_top(&self) -> Result<Option<Securite>, &'static str> {
