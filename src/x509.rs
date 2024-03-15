@@ -27,12 +27,25 @@ const OID_USERID: &str = "1.2.3.4.3";
 const OID_DELEGATION_GLOBALE: &str = "1.2.3.4.4";
 const OID_DELEGATION_DOMAINES: &str = "1.2.3.4.5";
 
+#[derive(Debug, Clone)]
+pub enum Error {
+    Openssl(ErrorStack),
+    Str(&'static str),
+    String(String),
+}
+
+impl From<ErrorStack> for Error {
+    fn from(value: ErrorStack) -> Self {
+        Error::Openssl(value)
+    }
+}
+
 #[inline]
 pub fn charger_csr(pem: &str) -> Result<X509Req, ErrorStack> {
     X509Req::from_pem(pem.as_bytes())
 }
 
-pub fn csr_calculer_fingerprintpk(pem: &str) -> Result<String, ErrorStack> {
+pub fn csr_calculer_fingerprintpk(pem: &str) -> Result<String, Error> {
     let csr_parsed = X509Req::from_pem(pem.as_bytes())?;
     let cle_publique = csr_parsed.public_key()?.raw_public_key()?;
     Ok(hex::encode(cle_publique))
@@ -61,15 +74,15 @@ pub fn calculer_fingerprint_pk(pk: &PKey<Public>) -> Result<String, ErrorStack> 
     Ok(cle_hex)
 }
 
-pub fn calculer_idmg(cert: &X509) -> Result<String, String> {
+pub fn calculer_idmg(cert: &X509) -> Result<String, Error> {
     calculer_idmg_ref(cert.deref())
 }
 
-pub fn calculer_idmg_ref(cert: &X509Ref) -> Result<String, String> {
+pub fn calculer_idmg_ref(cert: &X509Ref) -> Result<String, Error> {
     let fingerprint = {
         let der = match cert.to_der() {
             Ok(v) => v,
-            Err(e) => Err(format!("calculer_idmg_ref fingerprint error : {:?}", e))?
+            Err(e) => Err(Error::String(format!("calculer_idmg_ref fingerprint error : {:?}", e)))?
         };
         let mut hasher = Blake2s256::new();
         hasher.update(der);
@@ -93,7 +106,7 @@ pub fn calculer_idmg_ref(cert: &X509Ref) -> Result<String, String> {
     let not_after: &Asn1TimeRef = cert.not_after();
     let date_parsed = match EnveloppeCertificat::formatter_date_epoch(not_after) {
         Ok(inner) => inner,
-        Err(e) => Err(format!("Erreur parsing date expiration pour calculer_idmg : {:?}", e))?
+        Err(e) => Err(Error::String(format!("Erreur parsing date expiration pour calculer_idmg : {:?}", e)))?
     };
 
     // Calculer expiration avec ceil(epoch / 1000), permet de reduire la date a u32.
@@ -120,92 +133,98 @@ impl EnveloppeCertificat {
         self.fingerprint_pk()
     }
 
-    pub fn pubkey(&self) -> Result<Vec<u8>, String> {
+    pub fn pubkey(&self) -> Result<Vec<u8>, Error> {
         let pk: PKey<Public> = self.certificat.public_key().unwrap();
         match pk.raw_public_key() {
             Ok(inner) => Ok(inner),
-            Err(e) => Err(format!("EnveloppeCertificat::pubkey Erreur {:?}", e))?
+            Err(e) => Err(Error::String(format!("EnveloppeCertificat::pubkey Erreur {:?}", e)))?
         }
     }
 
-    pub fn not_valid_before(&self) -> Result<DateTime<Utc>, String> {
+    pub fn not_valid_before(&self) -> Result<DateTime<Utc>, Error> {
         let not_before: &Asn1TimeRef = self.certificat.not_before();
         match EnveloppeCertificat::formatter_date_epoch(not_before) {
             Ok(date) => Ok(date),
-            Err(e) => Err(format!("Parsing erreur certificat not_valid_before : {:?}", e))
+            Err(e) => Err(Error::String(format!("Parsing erreur certificat not_valid_before : {:?}", e)))
         }
     }
 
-    pub fn not_valid_after(&self) -> Result<DateTime<Utc>, String> {
+    pub fn not_valid_after(&self) -> Result<DateTime<Utc>, Error> {
         let not_after: &Asn1TimeRef = self.certificat.not_after();
         match EnveloppeCertificat::formatter_date_epoch(not_after) {
             Ok(date) => Ok(date),
-            Err(e) => Err(format!("Parsing erreur certificat not_valid_after : {:?}", e))
+            Err(e) => Err(Error::String(format!("Parsing erreur certificat not_valid_after : {:?}", e)))
         }
     }
 
-    pub fn idmg(&self) -> Result<String, String> {
+    pub fn idmg(&self) -> Result<String, Error> {
         let certificat = &self.certificat;
         let subject_name = certificat.subject_name();
         for entry in subject_name.entries_by_nid(Nid::ORGANIZATIONNAME) {
             let data = entry.data().as_slice().to_vec();
             return match String::from_utf8(data) {
                 Ok(inner) => Ok(inner),
-                Err(e) => Err(format!("Erreur chargement IDMG : {:?}", e))
+                Err(e) => Err(Error::String(format!("Erreur chargement IDMG : {:?}", e)))
             }
         }
-        Err("IDMG non present sur certificat (OrganizationName)".into())
+        Err(Error::Str("IDMG non present sur certificat (OrganizationName)"))
     }
 
     /// Calcule le idmg pour ce certificat
-    pub fn calculer_idmg(&self) -> Result<String, String> {
+    pub fn calculer_idmg(&self) -> Result<String, Error> {
         match self.idmg() {
             Ok(i) => Ok(i),
             Err(_) => calculer_idmg(&self.certificat)
         }
     }
 
-    pub fn subject(&self) -> Result<HashMap<String, String>, String> {
+    pub fn subject(&self) -> Result<HashMap<String, String>, Error> {
         let certificat = &self.certificat;
         let subject_name = certificat.subject_name();
 
         let mut resultat = HashMap::new();
         for entry in subject_name.entries() {
             // debug!("Entry : {:?}", entry);
-            let cle: String = entry.object().nid().long_name().expect("Erreur chargement Nid de subject").into();
+            let cle: &str = match entry.object().nid().long_name() {
+                Ok(inner) => inner,
+                Err(e) => Err(Error::Openssl(e))?
+            };
             let data = entry.data().as_slice().to_vec();
             let valeur = String::from_utf8(data).expect("Erreur chargement IDMG");
-            resultat.insert(cle, valeur);
+            resultat.insert(cle.to_string(), valeur);
         }
 
         Ok(resultat)
     }
 
-    pub fn get_common_name(&self) -> Result<String, String> {
+    pub fn get_common_name(&self) -> Result<String, Error> {
         let subject = self.subject()?;
         match subject.get("commonName") {
             Some(cn) => Ok(cn.to_owned()),
-            None => Err("certificats.EnveloppeCertificat.get_common_name : commonName absent du subject".into())
+            None => Err(Error::Str("certificats.EnveloppeCertificat.get_common_name : commonName absent du subject"))
         }
     }
 
-    pub fn issuer(&self) -> Result<HashMap<String, String>, String> {
+    pub fn issuer(&self) -> Result<HashMap<String, String>, Error> {
         let certificat = &self.certificat;
         let subject_name = certificat.issuer_name();
 
         let mut resultat = HashMap::new();
         for entry in subject_name.entries() {
             // debug!("Entry : {:?}", entry);
-            let cle: String = entry.object().nid().long_name().expect("Erreur chargement Nid de subject").into();
+            let cle: &str = match entry.object().nid().long_name() {
+                Ok(inner) => inner,
+                Err(e) => Err(Error::Openssl(e))?
+            };
             let data = entry.data().as_slice().to_vec();
             let valeur = String::from_utf8(data).expect("Erreur chargement IDMG");
-            resultat.insert(cle, valeur);
+            resultat.insert(cle.to_string(), valeur);
         }
 
         Ok(resultat)
     }
 
-    pub fn est_ca(&self) -> Result<bool, String> {
+    pub fn est_ca(&self) -> Result<bool, Error> {
         let subject = self.subject()?;
         let issuer = self.issuer()?;
         Ok(subject == issuer)
@@ -302,7 +321,7 @@ impl EnveloppePrivee {
         Self { enveloppe_pub, enveloppe_ca, cle_privee, chaine_pem, ca_pem, cle_privee_pem }
     }
 
-    pub fn from_str<C,K,A>(cert: C, key: K, ca: A) -> Result<Self, String>
+    pub fn from_str<C,K,A>(cert: C, key: K, ca: A) -> Result<Self, Error>
         where C: AsRef<str>, K: ToString, A: ToString
     {
         let cert = cert.as_ref();
@@ -311,15 +330,15 @@ impl EnveloppePrivee {
 
         let enveloppe_pub = match EnveloppeCertificat::try_from(cert) {
             Ok(inner) => inner,
-            Err(e) => Err(format!("EnveloppePrivee from_str Erreur try_from cert : {:?}", e))?
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_str Erreur try_from cert : {:?}", e)))?
         };
         let cle_privee: PKey<Private> = match PKey::private_key_from_pem(key.as_bytes()) {
             Ok(inner) => inner,
-            Err(e) => Err(format!("EnveloppePrivee from_str Erreur try_from cert : {:?}", e))?
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_str Erreur try_from cert : {:?}", e)))?
         };
         let enveloppe_ca = match EnveloppeCertificat::try_from(ca.as_str()) {
             Ok(inner) => inner,
-            Err(e) => Err(format!("EnveloppePrivee from_str Erreur try_from ca : {:?}", e))?
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_str Erreur try_from ca : {:?}", e)))?
         };
 
         let chaine_pem = enveloppe_pub.chaine_pem();
@@ -333,45 +352,45 @@ impl EnveloppePrivee {
         Ok(enveloppe)
     }
 
-    pub fn from_files(cert: &PathBuf, key: &PathBuf, ca: &PathBuf) -> Result<Self, String> {
+    pub fn from_files(cert: &PathBuf, key: &PathBuf, ca: &PathBuf) -> Result<Self, Error> {
         let chaine_pem_string = match read_to_string(cert) {
             Ok(inner) => inner,
-            Err(e) => Err(format!("EnveloppePrivee from_files Erreur read_to_string cert : {:?}", e))?
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_files Erreur read_to_string cert : {:?}", e)))?
         };
         let cle_privee_pem = match read_to_string(key) {
             Ok(inner) => inner,
-            Err(e) => Err(format!("EnveloppePrivee from_files Erreur read_to_string key : {:?}", e))?
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_files Erreur read_to_string key : {:?}", e)))?
         };
         let ca_pem = match read_to_string(ca) {
             Ok(inner) => inner,
-            Err(e) => Err(format!("EnveloppePrivee from_files Erreur read_to_string ca : {:?}", e))?
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_files Erreur read_to_string ca : {:?}", e)))?
         };
         EnveloppePrivee::from_str(chaine_pem_string, cle_privee_pem, ca_pem)
     }
 
-    fn verifier_correspondance(&self) -> Result<(), String> {
+    fn verifier_correspondance(&self) -> Result<(), Error> {
         // Verifier que la cle privee correspond au certificat (pubkey)
         let pubkey_vec = self.enveloppe_pub.pubkey()?;
         let private_pubkey_vec = match self.cle_privee.raw_public_key() {
             Ok(inner) => inner,
-            Err(e) => Err(format!("EnveloppeCertificat::verifier_correspondance Erreur cle privee -> public_key() {:?}", e))?
+            Err(e) => Err(Error::String(format!("EnveloppeCertificat::verifier_correspondance Erreur cle privee -> public_key() {:?}", e)))?
         };
 
         debug!("Cle publiques cert et privkey vec\n{:?}\n{:?}", pubkey_vec, private_pubkey_vec);
 
         if pubkey_vec.as_slice() != private_pubkey_vec.as_slice() {
-            Err(String::from("EnveloppeCertificat::verifier_correspondance Mismatch cle publique/privee"))?
+            Err(Error::Str("EnveloppeCertificat::verifier_correspondance Mismatch cle publique/privee"))?
         }
 
         // Verifier que le CA correspond au certificat
         let idmg_cert = self.enveloppe_pub.idmg()?;
         let idmg_ca = self.enveloppe_ca.calculer_idmg()?;
         if idmg_cert != idmg_ca {
-            Err(String::from("Mismatch CA et cert (idmg)"))?
+            Err(Error::Str("Mismatch CA et cert (idmg)"))?
         }
 
         if ! self.enveloppe_ca.est_ca()? {
-            Err(String::from("Certificat CA n'est pas self-signed"))?
+            Err(Error::Str("Certificat CA n'est pas self-signed"))?
         }
 
         Ok(())

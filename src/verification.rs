@@ -8,7 +8,7 @@ use crate::messages_structs::MessageMilleGrillesRef;
 /// - la date du message avec celle du certificat leaf
 ///
 /// Si une date_verification est fournie, s'assure que le certificat leaf est valide a cette date.
-pub fn verifier_certificats<const C: usize>(
+pub fn verifier_certificats_message<const C: usize>(
     message: MessageMilleGrillesRef<C>,
     date_verification: Option<&DateTime<Utc>>
 ) -> Result<(), &'static str> {

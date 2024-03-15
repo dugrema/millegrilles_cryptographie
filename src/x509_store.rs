@@ -1,139 +1,137 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::error;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::fs::read_to_string;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Utc};
-use log::{debug, error, info};
+use log::{debug, info, warn};
+use openssl::asn1::Asn1TimeRef;
 use openssl::error::ErrorStack;
-use openssl::pkey::PKey;
+use openssl::nid::Nid;
+use openssl::stack::{Stack, StackRef};
 use openssl::x509::store::{X509Store, X509StoreBuilder};
 use openssl::x509::verify::X509VerifyFlags;
-use openssl::x509::X509;
-use serde::{Deserialize, Serialize, Serializer};
-use crate::x509::{calculer_fingerprint, charger_certificat, charger_enveloppe, EnveloppeCertificat, EnveloppePrivee, ExtensionsMilleGrille, verifier_certificat};
+use openssl::x509::{X509, X509Ref, X509StoreContext, X509StoreContextRef};
+use serde::{Serialize, Serializer};
+use crate::securite::Securite;
 
-pub fn charger_enveloppe(pem: &str, store: Option<&X509Store>, ca_pem: Option<&str>)
-                         -> Result<EnveloppeCertificat, ErrorStack>
-{
-    let chaine_x509 = charger_chaine(pem)?;
+use crate::x509::{Error, EnveloppeCertificat, ExtensionsMilleGrille, calculer_idmg_ref};
 
-    let millegrille = match ca_pem {
-        Some(c) => X509::stack_from_pem(c.as_bytes())?.pop(),
-        None => None
-    };
+pub trait ValidateurX509: Send + Sync {
 
-    // Calculer fingerprint du certificat
-    let cert: &X509 = chaine_x509.get(0).unwrap();
-    // let fingerprint = calculer_fingerprint(cert).expect("fingerprint");
+    fn valider(&self, enveloppe: &EnveloppeCertificat, date: Option<&DateTime<Utc>>) -> Result<(), Error>;
 
-    // Pousser les certificats intermediaires (pas le .0, ni le dernier)
-    let mut intermediaire: Stack<X509> = Stack::new()?;
-    for cert_idx in 1..chaine_x509.len() {
-        let _ = intermediaire.push(chaine_x509.get(cert_idx).expect("charger_enveloppe intermediaire").to_owned());
-    }
-
-    // Verifier la chaine avec la date courante.
-    let mut presentement_valide = false;
-    match store {
-        Some(s) => {
-            presentement_valide = verifier_certificat(cert, &intermediaire, s)?;
-        },
-        None => (),
-    }
-
-    // let cle_publique = cert.public_key().unwrap();
-    // let cert_der = cert.to_der().expect("Erreur exporter cert format DEV");
-    // let extensions = parse_x509(cert_der.as_slice()).expect("Erreur preparation extensions X509 MilleGrille");
-
-    Ok(EnveloppeCertificat {
-        certificat: cert.clone(),
-        chaine: chaine_x509,
-        millegrille,
-    })
 }
 
-pub fn verifier_certificat(cert: &X509, chaine_pem: &StackRef<X509>, store: &X509Store) -> Result<bool, ErrorStack> {
-    let mut store_context = X509StoreContext::new()?;
-    store_context.init(store, cert, chaine_pem, |c| {
-        let mut resultat = c.verify_cert()?;
+fn verifier_certificat_context(cert: &X509Ref, context: &mut X509StoreContextRef) -> Result<bool, ErrorStack> {
+    let mut resultat = context.verify_cert()?;
 
-        if resultat == true {
-            // Verifier que l'organisation du certificat correspond au idmg du CA
-            let organization = match cert.subject_name().entries_by_nid(Nid::ORGANIZATIONNAME).next() {
-                Some(o) => {
-                    let data = o.data().as_slice().to_vec();
-                    match String::from_utf8(data) {
-                        Ok(o) => Some(o),
-                        Err(_) => None,
+    if resultat == true {
+        // Verifier que l'organisation du certificat correspond au idmg du CA
+        let organization = match cert.subject_name().entries_by_nid(Nid::ORGANIZATIONNAME).next() {
+            Some(o) => {
+                let data = o.data().as_slice().to_vec();
+                match String::from_utf8(data) {
+                    Ok(o) => Some(o),
+                    Err(_) => None,
+                }
+            },
+            None => None,
+        };
+
+        if let Some(organization) = organization {
+            // Verifier le idmg
+            match context.chain() {
+                Some(s) => {
+                    match s.iter().last() {
+                        Some(ca) => {
+                            match calculer_idmg_ref(ca) {
+                                Ok(idmg_ca) => {
+                                    debug!("Sujet organization cert : {}, idmg cert CA {} trouve durant validation : {:?}", organization, idmg_ca, ca.subject_name());
+                                    resultat = idmg_ca == organization;
+                                },
+                                Err(e) => {
+                                    warn!("Erreur calcul idmg CA : {:?}", e);
+                                    resultat = false;
+                                }
+                            };
+                        },
+                        None => {
+                            warn!("Cert CA absent, verification false");
+                            resultat = false;
+                        }
                     }
                 },
-                None => None,
+                None => {
+                    warn!("La chaine n'a pas ete produite suite a la validation, verif idmg impossible");
+                    resultat = false;
+                },
             };
-
-            if let Some(organization) = organization {
-                // Verifier le idmg
-                match c.chain() {
-                    Some(s) => {
-                        match s.iter().last() {
-                            Some(ca) => {
-                                match calculer_idmg_ref(ca) {
-                                    Ok(idmg_ca) => {
-                                        debug!("Sujet organization cert : {}, idmg cert CA {} trouve durant validation : {:?}", organization, idmg_ca, ca.subject_name());
-                                        resultat = idmg_ca == organization;
-                                    },
-                                    Err(e) => {
-                                        warn!("Erreur calcul idmg CA : {:?}", e);
-                                        resultat = false;
-                                    }
-                                };
-                            },
-                            None => {
-                                warn!("Cert CA absent, verification false");
-                                resultat = false;
-                            }
-                        }
-                    },
-                    None => {
-                        warn!("La chaine n'a pas ete produite suite a la validation, verif idmg impossible");
-                        resultat = false;
-                    },
-                };
-            } else {
-                warn!("Organization manquante du certificat, on le considere invalide");
-                resultat = false;
-            }
         } else {
-            debug!("Certificat store considere le certificat invalide");
+            warn!("Organization manquante du certificat, on le considere invalide");
+            resultat = false;
         }
+    } else {
+        debug!("Certificat store considere le certificat invalide");
+    }
 
-        Ok(resultat)
-    })
+    Ok(resultat)
 }
 
-pub fn build_store_path(ca_path: &Path) -> Result<ValidateurX509Impl, ErrorStack> {
-    let ca_pem: String = read_to_string(ca_path).unwrap();
-    let ca_cert: X509 = charger_certificat(&ca_pem)?;
-    let store: X509Store = build_store(&ca_cert, true)?;
-    let store_notime: X509Store = build_store(&ca_cert, false)?;
+fn verifier_certificat(cert: &X509, chaine_pem: &StackRef<X509>, store: &X509Store) -> Result<(), Error> {
+    let mut store_context = X509StoreContext::new()?;
+    let resultat: bool = store_context.init(store, cert, chaine_pem, |c| {
+        verifier_certificat_context(cert, c)
+    })?;
 
-    let enveloppe_ca = charger_enveloppe(&ca_pem, Some(&store), None).unwrap();
+    if ! resultat {
+        Err(Error::Str("Certificat invalide"))?
+    }
+
+    Ok(())
+}
+
+pub fn build_store_from_path(ca_path: &Path) -> Result<ValidateurX509Impl, Error> {
+    let ca_pem: String = read_to_string(ca_path).unwrap();
+    build_store_from_str(ca_pem)
+}
+
+pub fn build_store_from_str<S>(ca: S) -> Result<ValidateurX509Impl, Error>
+    where S: ToString
+{
+    let ca = ca.to_string();
+
+    let enveloppe_ca = match EnveloppeCertificat::try_from(ca.as_str()) {
+        Ok(inner) => inner,
+        Err(e) => Err(Error::String(format!("EnveloppePrivee from_str Erreur try_from ca : {:?}", e)))?
+    };
+
+    if ! enveloppe_ca.est_ca()? {
+        Err(Error::Str("build_store_from_str Enveloppe n'est pas CA"))?
+    }
+
+    let ca_cert = enveloppe_ca.certificat.as_ref();
+    let store: X509Store = build_store(ca_cert, true)?;
+    let store_notime: X509Store = build_store(ca_cert, false)?;
 
     // Calculer idmg
-    let idmg: String = calculer_idmg(&ca_cert).unwrap();
+    let idmg = enveloppe_ca.calculer_idmg()?;
 
-    let validateur = ValidateurX509Impl::new(store, store_notime, idmg, ca_pem, ca_cert);
-
-    // Conserver l'enveloppe dans le cache
-    let _ = validateur.cacher(enveloppe_ca);
+    let validateur = ValidateurX509Impl {
+        store,
+        store_notime,
+        idmg,
+        ca_pem: ca,
+        ca_cert: enveloppe_ca.certificat,
+    };
 
     Ok(validateur)
 }
 
-pub fn build_store(ca_cert: &X509, check_time: bool) -> Result<X509Store, ErrorStack> {
+fn build_store(ca_cert: &X509Ref, check_time: bool) -> Result<X509Store, ErrorStack>
+{
+    let ca_cert = ca_cert.to_owned();
+
     let mut builder = X509StoreBuilder::new()?;
-    let ca_cert = ca_cert.to_owned();  // Requis par methode add_cert
     let _ = builder.add_cert(ca_cert);
 
     if check_time == false {
@@ -144,298 +142,80 @@ pub fn build_store(ca_cert: &X509, check_time: bool) -> Result<X509Store, ErrorS
     Ok(builder.build())
 }
 
-pub fn charger_enveloppe_privee<V>(path_cert: &Path, path_cle: &Path, validateur: Arc<V>)
-                                   -> Result<EnveloppePrivee, ErrorStack>
-    where V: ValidateurX509
-{
-    let path_cle_str = format!("cle : {:?}", path_cle);
-    let pem_cle = read_to_string(path_cle).expect(path_cle_str.as_str());
-    // let cle_privee = Rsa::private_key_from_pem(pem_cle.as_bytes())?;
-    // let cle_privee: PKey<Private> = PKey::from_rsa(cle_privee)?;
-    let cle_privee = PKey::private_key_from_pem(pem_cle.as_bytes())?;
-
-    let pem_cert = read_to_string(path_cert).unwrap();
-    let enveloppe = charger_enveloppe(&pem_cert, Some(validateur.store()), None)?;
-
-    let clecert_pem = format!("{}\n{}", pem_cle, pem_cert);
-
-    // Recreer la chaine de certificats avec les PEM.
-    let mut chaine_pem: Vec<String> = Vec::new();
-    let cert_pem = String::from_utf8(enveloppe.certificat().to_pem().unwrap()).unwrap();
-    chaine_pem.push(cert_pem);
-    for cert_intermediaire in &enveloppe.intermediaire {
-        let pem = cert_intermediaire.to_pem().unwrap();
-        let cert_pem = String::from_utf8(pem).unwrap();
-        chaine_pem.push(cert_pem);
-    }
-
-    let ca_pem = validateur.ca_pem().to_owned();
-    let enveloppe_ca = Arc::new(charger_enveloppe(&ca_pem, Some(validateur.store()), None)?);
-    let enveloppe_privee = EnveloppePrivee {
-        enveloppe: Arc::new(enveloppe),
-        cle_privee,
-        chaine_pem,
-        clecert_pem,
-        ca: ca_pem,
-        enveloppe_ca,
-    };
-
-    Ok(enveloppe_privee)
-}
-
-#[async_trait]
-pub trait ValidateurX509: Send + Sync {
-
-    async fn charger_enveloppe(&self, chaine_pem: &Vec<String>, fingerprint: Option<&str>, ca_pem: Option<&str>) -> Result<Arc<EnveloppeCertificat>, String>;
-
-    /// Conserve un certificat dans le cache
-    /// retourne le certificat et un bool qui indique si le certificat a deja ete persiste (true)
-    async fn cacher(&self, certificat: EnveloppeCertificat) -> (Arc<EnveloppeCertificat>, bool);
-
-    /// Set le flag persiste a true pour le certificat correspondant a fingerprint
-    fn set_flag_persiste(&self, fingerprint: &str);
-
-    async fn get_certificat(&self, fingerprint: &str) -> Option<Arc<EnveloppeCertificat>>;
-
-    /// Retourne une liste de certificats qui n'ont pas encore ete persiste.
-    fn certificats_persister(&self) -> Vec<Arc<EnveloppeCertificat>>;
-
-    fn idmg(&self) -> &str;
-
-    fn ca_pem(&self) -> &str;
-
-    fn ca_cert(&self) -> &X509;
-
-    fn store(&self) -> &X509Store;
-
-    /// Store avec le flag X509VerifyFlags::NO_CHECK_TIME
-    /// Permet de valider une date specifique
-    /// Todo: utiliser OpenSSL lorsque verif params disponibles
-    fn store_notime(&self) -> &X509Store;
-
-    /// Invoquer regulierement pour faire l'entretien du cache.
-    async fn entretien_validateur(&self);
-
-    fn valider_chaine(&self, enveloppe: &EnveloppeCertificat, certificat_millegrille: Option<&EnveloppeCertificat>) -> Result<bool, String> {
-        let certificat = &enveloppe.certificat;
-        let chaine = &enveloppe.intermediaire;
-        match certificat_millegrille {
-            Some(cm) => {
-                debug!("Idmg tiers, on bati un store on the fly : CA {:?}", cm.chaine);
-                let cert_ca = &cm.certificat;
-                // let cert_ca = chaine[chaine.len()-1].to_owned();
-                let store = match build_store(cert_ca, false) {
-                    Ok(s) => s,
-                    Err(_e) => Err(format!("certificats.valider_chaine Erreur preparation store pour certificat {:?}", certificat))?
-                };
-                match verifier_certificat(certificat, chaine, &store) {
-                    Ok(b) => {
-                        debug!("Verifier certificat result : valide = {}, cert {:?}", b, certificat);
-                        Ok(b)
-                    },
-                    Err(e) => Err(format!("certificats.valider_chaine Erreur verification certificat idmg {:?} : {:?}", certificat, e)),
-                }
-            },
-            None => {
-                match verifier_certificat(certificat, chaine, self.store_notime()) {
-                    Ok(b) => {
-                        debug!("Verifier certificat result apres check date OK : {}", b);
-                        Ok(b)
-                    },
-                    Err(e) => Err(format!("certificats.valider_chaine Erreur verification certificat avec no time : {:?}", e)),
-                }
-            }
-        }
-    }
-
-    /// Valider le certificat pour une fourchette de date.
-    /// Note : ne valide pas la chaine
-    fn valider_pour_date(&self, enveloppe: &EnveloppeCertificat, date: &DateTime<Utc>) -> Result<bool, String> {
-        let before = enveloppe.not_valid_before()?;
-        let after = enveloppe.not_valid_after()?;
-        Ok(date >= &before && date <= &after)
-    }
-
-}
-
 pub struct ValidateurX509Impl {
     store: X509Store,
     store_notime: X509Store,
-    idmg: String,
-    ca_pem: String,
-    ca_cert: X509,
-    cache_certificats: Mutex<HashMap<String, CacheCertificat>>,
+    pub idmg: String,
+    pub ca_pem: String,
+    pub ca_cert: X509,
 }
 
 impl ValidateurX509Impl {
 
     pub fn new(store: X509Store, store_notime: X509Store, idmg: String, ca_pem: String, ca_cert: X509) -> ValidateurX509Impl {
-        let cache_certificats: Mutex<HashMap<String, CacheCertificat>> = Mutex::new(HashMap::new());
-        ValidateurX509Impl {store, store_notime, idmg, ca_pem, ca_cert, cache_certificats}
-    }
-
-    /// Expose la fonction pour creer un certificat
-    fn charger_certificat(pem: &str) -> Result<(X509, String), String> {
-        let cert = charger_certificat(pem);
-        let fingerprint = calculer_fingerprint(&cert)?;
-        Ok((cert, fingerprint))
+        ValidateurX509Impl {store, store_notime, idmg, ca_pem, ca_cert}
     }
 
 }
 
-#[async_trait]
 impl ValidateurX509 for ValidateurX509Impl {
+    fn valider(&self, enveloppe: &EnveloppeCertificat, date: Option<&DateTime<Utc>>) -> Result<(), Error> {
 
-    async fn charger_enveloppe(&self, chaine_pem: &Vec<String>, fingerprint: Option<&str>, ca_pem: Option<&str>)
-                               -> Result<Arc<EnveloppeCertificat>, String>
-    {
+        let mut intermediaire: Stack<X509> = match Stack::new() {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::Openssl(e))?
+        };
 
-        let fp: String = match fingerprint {
-            Some(fp) => Ok(String::from(fp)),
-            None => {
-                debug!("charger_enveloppe Charger le _certificat pour trouver fingerprint");
-                match chaine_pem.get(0) {
-                    Some(pem) => {
-                        match ValidateurX509Impl::charger_certificat(pem.as_str()) {
-                            Ok(r) => Ok(r.1),
-                            Err(e) => Err(format!("Erreur chargement enveloppe certificat : {:?}", e)),
-                        }
-                    },
-                    None => Err(String::from("Aucun certificat n'est present")),
-                }
-            }
-        }?;
-
-        debug!("charger_enveloppe Fingerprint du certificat de l'enveloppe a charger : {}", fp);
-
-        // Verifier si le certificat est present dans le cache
-        match self.get_certificat(fp.as_str()).await {
-            Some(e) => Ok(e),
-            None => {
-                // Creer l'enveloppe et conserver dans le cache local
-                let pem_str: String = chaine_pem.join("\n");
-                debug!("charger_enveloppe Alignement du _certificat en string concatenee\n{}", pem_str);
-                match charger_enveloppe(pem_str.as_str(), Some(&self.store), ca_pem) {
-                    Ok(e) => {
-
-                        // Verifier si on a un certificat de millegrille tierce (doit avoir CA)
-                        let idmg_local = self.idmg.as_str();
-                        if e.est_ca()? {
-                            // Certificat CA, probablement d'une millegrille tierce. Accepter inconditionnellement.
-                            Ok(self.cacher(e).await.0)
-                        } else {
-                            // Verifier si le certificat est local (CA n'est pas requis)
-                            // Pour tiers, le CA doit etre inclus dans l'enveloppe.
-                            let idmg_certificat = e.idmg()?;
-                            if idmg_local == idmg_certificat.as_str() || e.millegrille.is_some() {
-                                Ok(self.cacher(e).await.0)
-                            } else {
-                                Err(format!("certificats.charger_enveloppe Erreur chargement certificat {} : certificat CA manquant pour millegrille {} tierce", fp, idmg_certificat))
-                            }
-                        }
-                    },
-                    Err(e) => Err(format!("certificats.charger_enveloppe Erreur chargement certificat {} : {:?}", fp, e))
-                }
+        // Generer chaine intermediaire - skip cert[0] (leaf)
+        for cert in &enveloppe.chaine[1..] {
+            if let Err(e) = intermediaire.push(cert.to_owned()) {
+                Err(Error::Openssl(e))?
             }
         }
-    }
 
-    async fn cacher(&self, certificat: EnveloppeCertificat) -> (Arc<EnveloppeCertificat>, bool) {
+        match date {
+            Some(inner) => {
+                // Valider chaine avec la date recue
+                for cert in &enveloppe.chaine {
+                    let not_valid_after = match not_valid_after(&cert) {
+                        Ok(inner) => inner,
+                        Err(e) => Err(Error::Str("ValidateurX509Impl::valider Erreur chargement not_valid_after"))?
+                    };
+                    let not_valid_before = match not_valid_before(&cert) {
+                        Ok(inner) => inner,
+                        Err(e) => Err(Error::Str("ValidateurX509Impl::valider Erreur chargement not_valid_before"))?
+                    };
+                    if &not_valid_before > inner || &not_valid_after < inner {
+                        Err(Error::Str("ValidateurX509Impl::valider Certificat hors date"))?
+                    }
+                }
 
-        let fingerprint = certificat.fingerprint().clone();
-
-        let mut mutex = self.cache_certificats.lock().expect("lock");
-        match mutex.get_mut(fingerprint.as_str()) {
-            Some(e) => {
-                // Incrementer compteur, maj date acces
-                e.compte_acces = e.compte_acces + 1;
-                e.dernier_acces = Utc::now();
-
-                (e.enveloppe.clone(), e.persiste)
+                // Verifier en ignorant la date
+                verifier_certificat(&enveloppe.certificat, intermediaire.as_ref(), &self.store_notime)
             },
             None => {
-                let enveloppe = Arc::new(certificat);
-
-                if mutex.len() < TAILLE_CACHE_MAX {
-                    // Certificat inconnu, sauvegarder dans le cache
-                    let cache_entry = CacheCertificat::new(enveloppe.clone());
-                    mutex.insert(fingerprint, cache_entry);
-                } else {
-                    debug!("Cache certificat plein, on ne conserve pas le certificat en memoire");
-                }
-
-                // Retourne l'enveloppe et indicateur que le certificat n'est pas persiste
-                (enveloppe, false)
+                // Verifier avec la date courante
+                verifier_certificat(&enveloppe.certificat, intermediaire.as_ref(), &self.store)
             }
         }
-    }
-
-    fn set_flag_persiste(&self, fingerprint: &str) {
-        let mut mutex = self.cache_certificats.lock().expect("lock");
-        if let Some(certificat) = mutex.get_mut(fingerprint) {
-            certificat.persiste = true;
-        }
-    }
-
-    async fn get_certificat(&self, fingerprint: &str) -> Option<Arc<EnveloppeCertificat>> {
-        match self.cache_certificats.lock().unwrap().get_mut(fingerprint) {
-            Some(e) => {
-                // Incrementer compteur, maj date acces
-                e.compte_acces = e.compte_acces + 1;
-                e.dernier_acces = Utc::now();
-
-                // Retourner clone de l'enveloppe
-                Some(e.enveloppe.clone())
-            },
-            None => None,
-        }
-    }
-
-    /// Retourne une liste de certificats qui n'ont pas encore ete persiste.
-    fn certificats_persister(&self) -> Vec<Arc<EnveloppeCertificat>> {
-        let mut mutex = self.cache_certificats.lock().expect("lock");
-        mutex.iter()
-            .filter(|(_,c)| !c.persiste)
-            .map(|e| e.1.enveloppe.clone())
-            .collect()
-    }
-
-    fn idmg(&self) -> &str { self.idmg.as_str() }
-
-    fn ca_pem(&self) -> &str { self.ca_pem.as_str() }
-
-    fn ca_cert(&self) -> &X509 { &self.ca_cert }
-
-    fn store(&self) -> &X509Store { &self.store }
-
-    fn store_notime(&self) -> &X509Store { &self.store_notime }
-
-    async fn entretien_validateur(&self) {
-        debug!("Entretien cache certificats");
-
-        {
-            let mut mutex = self.cache_certificats.lock().expect("lock");
-            if mutex.len() > TAILLE_CACHE_NETTOYER {
-                // Retirer tous les certificats avec une date d'acces expiree (cache mode MRU)
-                let expiration = Utc::now() - chrono::Duration::minutes(30);
-                mutex.retain(|_, val| val.dernier_acces < expiration);
-
-                if mutex.len() > TAILLE_CACHE_MAX {
-                    // Meme apres nettoyage d'expiration, le cache est plus grand que la limite max
-                    mutex.clear();  // On fait juste clearer le cache. TODO faire un menage correct
-                }
-            }
-        }
-    }
-
-}
-
-impl Debug for ValidateurX509Impl {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("validateur X509")
     }
 }
 
+pub fn not_valid_before(cert: &X509) -> Result<DateTime<Utc>, Error> {
+    let not_before: &Asn1TimeRef = cert.not_before();
+    match EnveloppeCertificat::formatter_date_epoch(not_before) {
+        Ok(date) => Ok(date),
+        Err(e) => Err(Error::String(format!("Parsing erreur certificat not_valid_before : {:?}", e)))
+    }
+}
+
+pub fn not_valid_after(cert: &X509) -> Result<DateTime<Utc>, Error> {
+    let not_after: &Asn1TimeRef = cert.not_after();
+    match EnveloppeCertificat::formatter_date_epoch(not_after) {
+        Ok(date) => Ok(date),
+        Err(e) => Err(Error::String(format!("Parsing erreur certificat not_valid_after : {:?}", e)))
+    }
+}
 
 pub trait VerificateurPermissions {
     fn get_extensions(&self) -> Option<&ExtensionsMilleGrille>;
@@ -447,20 +227,6 @@ pub trait VerificateurPermissions {
             },
             None => None
         }
-    }
-
-    fn verifier(&self, exchanges: Option<Vec<Securite>>, roles: Option<Vec<RolesCertificats>>) -> bool {
-        let mut valide = true;
-
-        if let Some(e) = exchanges {
-            valide = valide && self.verifier_exchanges(e);
-        }
-
-        if let Some(r) = roles {
-            valide = valide && self.verifier_roles(r);
-        }
-
-        valide
     }
 
     fn verifier_usager<S>(&self, user_id: S) -> bool
@@ -493,8 +259,8 @@ pub trait VerificateurPermissions {
 
     fn verifier_exchanges(&self, exchanges_permis: Vec<Securite>) -> bool {
         // Valider certificat.
-        let exchanges_string: Vec<String> = exchanges_permis.into_iter().map(|s| s.try_into().expect("securite")).collect();
-        self.verifier_exchanges_string(exchanges_string)
+        let exchanges_string: Vec<&str> = exchanges_permis.into_iter().map(|s| s.into()).collect();
+        self.verifier_exchanges_string(exchanges_string.into_iter().map(|s| s.to_string()).collect())
     }
 
     fn verifier_exchanges_string(&self, exchanges_permis: Vec<String>) -> bool {
@@ -526,13 +292,9 @@ pub trait VerificateurPermissions {
         true
     }
 
-    /// Verifie les roles des certificats
-    fn verifier_roles(&self, roles_permis: Vec<RolesCertificats>) -> bool {
-        let roles_string: Vec<String> = roles_permis.into_iter().map(|s| s.try_into().expect("securite")).collect();
-        self.verifier_roles_string(roles_string)
-    }
-
-    fn verifier_roles_string(&self, roles_permis: Vec<String>) -> bool {
+    fn verifier_roles_string<S>(&self, roles_permis: Vec<S>) -> bool
+        where S: ToString
+    {
         // Valider certificat.
         let extensions = match self.get_extensions() {
             Some(e) => e,
@@ -540,12 +302,17 @@ pub trait VerificateurPermissions {
         };
 
         let mut hs_param= HashSet::new();
-        hs_param.extend(roles_permis);
+        for r in roles_permis {
+            hs_param.insert(r.to_string());
+        }
+        // hs_param.extend(roles_permis);
 
-        let hs_cert = match extensions.roles.clone() {
+        let hs_cert = match extensions.roles.as_ref() {
             Some(ex) => {
                 let mut hs_cert = HashSet::new();
-                hs_cert.extend(ex);
+                for r in ex {
+                    hs_cert.insert(r.to_owned());
+                }
                 hs_cert
             },
             None => return false,
@@ -588,89 +355,12 @@ pub trait VerificateurPermissions {
 
 }
 
-impl VerificateurPermissions for EnveloppeCertificat {
-    fn get_extensions(&self) -> Option<&ExtensionsMilleGrille> {
-        Some(&self.extensions_millegrille)
-    }
-}
-
 pub fn ordered_map<S>(value: &HashMap<String, String>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
 {
     let ordered: BTreeMap<_, _> = value.iter().collect();
     ordered.serialize(serializer)
-}
-
-/// Structure qui permet d'exporter en Json plusieurs certificats en format PEM.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CollectionCertificatsPem {
-    certificats: Vec<Vec<String>>,
-    #[serde(serialize_with = "ordered_map")]
-    pems: HashMap<String, String>,
-}
-
-impl CollectionCertificatsPem {
-
-    pub fn new() -> Self {
-        CollectionCertificatsPem {
-            pems: HashMap::new(),
-            certificats: Vec::new(),
-        }
-    }
-
-    pub fn ajouter_certificat(&mut self, certificat: &EnveloppeCertificat) -> Result<(), Box<dyn error::Error>> {
-        let fingerprint = &certificat.fingerprint;
-
-        match self.pems.get(fingerprint) {
-            Some(_) => {
-                // Ok, rien a faire
-                return Ok(())
-            },
-            None => ()
-        }
-
-        let mut chaine_fp = Vec::new();
-        for fp_cert in certificat.get_pem_vec() {
-            chaine_fp.push(fp_cert.fingerprint.clone());
-            self.pems.insert(fp_cert.fingerprint, fp_cert.pem);
-        }
-
-        self.certificats.push(chaine_fp);
-
-        Ok(())
-    }
-
-    pub fn len(&self) -> usize {
-        self.certificats.len()
-    }
-
-    pub async fn get_enveloppe(&self, validateur: &impl ValidateurX509, fingerprint_certificat: &str) -> Option<Arc<EnveloppeCertificat>> {
-        // Trouver la chaine avec le fingerprint (position 0)
-        let res_chaine = self.certificats.iter().filter(|chaine| {
-            if let Some(fp) = chaine.get(0) {
-                fp.as_str() == fingerprint_certificat
-            } else {
-                false
-            }
-        }).next();
-
-        // Generer enveloppe a partir des PEMs individuels
-        if let Some(chaine) = res_chaine {
-            debug!("Fingerprints trouves (chaine): {:?}", chaine);
-            let pems: Vec<String> = chaine.into_iter().map(|fp| self.pems.get(fp.as_str()).expect("pem").to_owned()).collect();
-            match validateur.charger_enveloppe(&pems, Some(fingerprint_certificat), None).await {
-                Ok(e) => Some(e),
-                Err(e) => {
-                    error!("Erreur chargement enveloppe {} : {:?}", fingerprint_certificat, e);
-                    None
-                },
-            }
-        } else {
-            None
-        }
-
-    }
 }
 
 #[derive(Debug)]
@@ -755,5 +445,100 @@ impl RegleValidation for RegleValidationIdmg {
                 false
             }
         }
+    }
+}
+
+
+#[cfg(test)]
+mod messages_structs_tests {
+    use super::*;
+    use log::info;
+    use x509_parser::nom::combinator::value;
+
+    const CERT_1: &str = r#"-----BEGIN CERTIFICATE-----
+MIIClDCCAkagAwIBAgIUQuFP9EOrsQuFkWnXEH8UQNZ1EN4wBQYDK2VwMHIxLTAr
+BgNVBAMTJGY4NjFhYWZkLTUyOTctNDA2Zi04NjE3LWY3Yjg4MDlkZDQ0ODFBMD8G
+A1UEChM4emVZbmNScUVxWjZlVEVtVVo4d2hKRnVIRzc5NmVTdkNUV0U0TTQzMml6
+WHJwMjJiQXR3R203SmYwHhcNMjQwMjIwMTE0NjUzWhcNMjQwMzIyMTE0NzEzWjCB
+gTEtMCsGA1UEAwwkZjg2MWFhZmQtNTI5Ny00MDZmLTg2MTctZjdiODgwOWRkNDQ4
+MQ0wCwYDVQQLDARjb3JlMUEwPwYDVQQKDDh6ZVluY1JxRXFaNmVURW1VWjh3aEpG
+dUhHNzk2ZVN2Q1RXRTRNNDMyaXpYcnAyMmJBdHdHbTdKZjAqMAUGAytlcAMhANHZ
+whRt4OWZcSSUidlxR4BQ1VvJE93uugvzxg3Vss0xo4HdMIHaMCsGBCoDBAAEIzQu
+c2VjdXJlLDMucHJvdGVnZSwyLnByaXZlLDEucHVibGljMAwGBCoDBAEEBGNvcmUw
+TAYEKgMEAgREQ29yZUJhY2t1cCxDb3JlQ2F0YWxvZ3VlcyxDb3JlTWFpdHJlRGVz
+Q29tcHRlcyxDb3JlUGtpLENvcmVUb3BvbG9naWUwDwYDVR0RBAgwBoIEY29yZTAf
+BgNVHSMEGDAWgBRQUbOqbsQcXmnk3+moqmk1PXOGKjAdBgNVHQ4EFgQU4+j+8rBR
+K+WeiFzo6EIR+t0C7o8wBQYDK2VwA0EAab2vFykbUk1cWugRd10rGiTKp/PKZdG5
+X+Y+lrHe8AHcrpGGtUV8mwwcDsRbw2wtRq2ENceNlQAcwblEkxLvCA==
+-----END CERTIFICATE-----
+"#;
+
+    const CERT_INTER: &str = r#"-----BEGIN CERTIFICATE-----
+MIIBozCCAVWgAwIBAgIKAnY5ZhNJUlVzaTAFBgMrZXAwFjEUMBIGA1UEAxMLTWls
+bGVHcmlsbGUwHhcNMjQwMTMwMTM1NDU3WhcNMjUwODEwMTM1NDU3WjByMS0wKwYD
+VQQDEyRmODYxYWFmZC01Mjk3LTQwNmYtODYxNy1mN2I4ODA5ZGQ0NDgxQTA/BgNV
+BAoTOHplWW5jUnFFcVo2ZVRFbVVaOHdoSkZ1SEc3OTZlU3ZDVFdFNE00MzJpelhy
+cDIyYkF0d0dtN0pmMCowBQYDK2VwAyEAPUMU7tlz3HCEB+VzG8NVFQ/nFKjIOZmV
+egt+ub3/7SajYzBhMBIGA1UdEwEB/wQIMAYBAf8CAQAwCwYDVR0PBAQDAgEGMB0G
+A1UdDgQWBBRQUbOqbsQcXmnk3+moqmk1PXOGKjAfBgNVHSMEGDAWgBTTiP/MFw4D
+DwXqQ/J2LLYPRUkkETAFBgMrZXADQQB6S4tids+r9e5d+mwpdkrAE2k3+8H0x65z
+WD5eP7A2XeEr0LbxRPNyaO+Q8fvnjjCKasn97MTPSCXnU/4JbWYK
+-----END CERTIFICATE-----
+"#;
+
+    const CERT_CA: &str = r#"-----BEGIN CERTIFICATE-----
+MIIBQzCB9qADAgECAgoHBykXJoaCCWAAMAUGAytlcDAWMRQwEgYDVQQDEwtNaWxs
+ZUdyaWxsZTAeFw0yMjAxMTMyMjQ3NDBaFw00MjAxMTMyMjQ3NDBaMBYxFDASBgNV
+BAMTC01pbGxlR3JpbGxlMCowBQYDK2VwAyEAnnixameVCZAzfx4dO+L63DOk/34I
+/TC4fIA1Rxn19+KjYDBeMA8GA1UdEwEB/wQFMAMBAf8wCwYDVR0PBAQDAgLkMB0G
+A1UdDgQWBBTTiP/MFw4DDwXqQ/J2LLYPRUkkETAfBgNVHSMEGDAWgBTTiP/MFw4D
+DwXqQ/J2LLYPRUkkETAFBgMrZXADQQBSb0vXhw3pw25qrWoMjqROjawe7/kMlu7p
+MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
+-----END CERTIFICATE-----
+"#;
+
+    #[test_log::test]
+    fn test_try_from_str_chaine() {
+        let chaine = vec![CERT_1, CERT_INTER].join("\n");
+        let validateur = build_store_from_str(CERT_CA).unwrap();
+        let cert = EnveloppeCertificat::try_from(chaine.as_str()).unwrap();
+        info!("Certificat charge OK : {}", cert.fingerprint().unwrap());
+
+        // Valider. Lance une exception s'il y a une erreur.
+        validateur.valider(&cert, None).unwrap();
+    }
+
+    #[test_log::test]
+    fn test_try_from_str_chaine_incomplete() {
+        let validateur = build_store_from_str(CERT_CA).unwrap();
+        let cert = EnveloppeCertificat::try_from(CERT_1).unwrap();
+        info!("Certificat charge OK : {}", cert.fingerprint().unwrap());
+
+        // Valider. Lance une exception s'il y a une erreur.
+        assert!(validateur.valider(&cert, None).is_err());
+    }
+
+    #[test_log::test]
+    fn test_valider_certificat_date() {
+        let chaine = vec![CERT_1, CERT_INTER].join("\n");
+        let validateur = build_store_from_str(CERT_CA).unwrap();
+        let cert = EnveloppeCertificat::try_from(chaine.as_str()).unwrap();
+        info!("Certificat charge OK : {}", cert.fingerprint().unwrap());
+
+        // Valider. Lance une exception s'il y a une erreur.
+        let date = DateTime::from_timestamp(1710338722, 0).unwrap();
+        assert!(validateur.valider(&cert, Some(&date)).is_ok());
+    }
+
+    #[test_log::test]
+    fn test_valider_certificat_date_invalide() {
+        let chaine = vec![CERT_1, CERT_INTER].join("\n");
+        let validateur = build_store_from_str(CERT_CA).unwrap();
+        let cert = EnveloppeCertificat::try_from(chaine.as_str()).unwrap();
+        info!("Certificat charge OK : {}", cert.fingerprint().unwrap());
+
+        // Valider. Lance une exception s'il y a une erreur.
+        let date = DateTime::from_timestamp(1500000000, 0).unwrap();
+        assert!(validateur.valider(&cert, Some(&date)).is_err());
     }
 }
