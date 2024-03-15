@@ -1,10 +1,10 @@
 use core::str::from_utf8;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
-struct Ed25519PrivateKey {
-    signing_key: SigningKey,
-    verifying_key: VerifyingKey
-}
+// pub struct Ed25519PrivateKey {
+//     signing_key: SigningKey,
+//     verifying_key: VerifyingKey
+// }
 
 pub type MessageId = [u8; 32];
 

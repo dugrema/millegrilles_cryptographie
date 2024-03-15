@@ -8,20 +8,20 @@ const BLAKE2S_256: u16 = 0xb260;
 
 
 pub enum HachageCode {
-    Sha2_256,
-    Sha2_512,
-    Blake2s256,
-    Blake2b512,
+    Sha2_256 = SHA2_256 as isize,
+    Sha2_512 = SHA2_512 as isize,
+    Blake2s256 = BLAKE2S_256 as isize,
+    Blake2b512 = BLAKE2B_512 as isize,
 }
 
-fn hachagecode_value(code: HachageCode) -> u16 {
-    match code {
-        HachageCode::Sha2_256 => SHA2_256,
-        HachageCode::Sha2_512 => SHA2_512,
-        HachageCode::Blake2s256 => BLAKE2S_256,
-        HachageCode::Blake2b512 => BLAKE2B_512
-    }
-}
+// fn hachagecode_value(code: HachageCode) -> u16 {
+//     match code {
+//         HachageCode::Sha2_256 => SHA2_256,
+//         HachageCode::Sha2_512 => SHA2_512,
+//         HachageCode::Blake2s256 => BLAKE2S_256,
+//         HachageCode::Blake2b512 => BLAKE2B_512
+//     }
+// }
 
 // pub fn hacher_serializable<S>(s: &S) -> Result<String, Box<dyn Error>>
 //     where S: Serialize
@@ -116,12 +116,10 @@ pub struct HacheurBlake2b512 { hacheur: Blake2b512 }
 impl HacheurInterne for HacheurBlake2b512 {
     fn new() -> Self { HacheurBlake2b512{hacheur: Blake2b512::default()} }
     fn update(&mut self, data: &[u8]) { self.hacheur.update(data) }
-    fn finalize_into(mut self, output: &mut [u8]) {
+    fn finalize_into(self, output: &mut [u8]) {
         let mut output_hachage = [0u8; 64];
         self.hacheur.finalize_into((&mut output_hachage).into());
         output.copy_from_slice(&output_hachage[..]);
-        // let mh: Multihash<64> = Multihash::wrap(BLAKE2B_512 as u64, &output_hachage).expect("multihash wrap");
-        // mh.write(output).unwrap();
     }
 }
 
@@ -129,12 +127,10 @@ pub struct HacheurBlake2s256 { hacheur: Blake2s256 }
 impl HacheurInterne for HacheurBlake2s256 {
     fn new() -> Self { HacheurBlake2s256 {hacheur: Blake2s256::default()} }
     fn update(&mut self, data: &[u8]) { self.hacheur.update(data) }
-    fn finalize_into(mut self, output: &mut [u8]) {
+    fn finalize_into(self, output: &mut [u8]) {
         let mut output_hachage = [0u8; 32];
         self.hacheur.finalize_into((&mut output_hachage).into());
         output.copy_from_slice(&output_hachage[..]);
-        // let mh: Multihash<32> = Multihash::wrap(BLAKE2S_256 as u64, &output_hachage).expect("multihash wrap");
-        // mh.write(output).unwrap();
     }
 }
 
@@ -142,12 +138,10 @@ pub struct HacheurSha2_256 { hacheur: Sha256 }
 impl HacheurInterne for HacheurSha2_256 {
     fn new() -> Self { HacheurSha2_256 {hacheur: Sha256::default()} }
     fn update(&mut self, data: &[u8]) { self.hacheur.update(data) }
-    fn finalize_into(mut self, output: &mut [u8]) {
+    fn finalize_into(self, output: &mut [u8]) {
         let mut output_hachage = [0u8; 32];
         self.hacheur.finalize_into((&mut output_hachage).into());
         output.copy_from_slice(&output_hachage[..]);
-        // let mh: Multihash<32> = Multihash::wrap(SHA2_256 as u64, &output_hachage).expect("multihash wrap");
-        // mh.write(output).unwrap();
     }
 }
 
@@ -155,12 +149,10 @@ pub struct HacheurSha2_512 { hacheur: Sha512 }
 impl HacheurInterne for HacheurSha2_512 {
     fn new() -> Self { HacheurSha2_512 {hacheur: Sha512::default()} }
     fn update(&mut self, data: &[u8]) { self.hacheur.update(data) }
-    fn finalize_into(mut self, output: &mut [u8]) {
+    fn finalize_into(self, output: &mut [u8]) {
         let mut output_hachage = [0u8; 64];
         self.hacheur.finalize_into((&mut output_hachage).into());
         output.copy_from_slice(&output_hachage[..]);
-        // let mh: Multihash<64> = Multihash::wrap(SHA2_512 as u64, &output_hachage).expect("multihash wrap");
-        // mh.write(output).unwrap();
     }
 }
 

@@ -7,7 +7,7 @@ edition = "2021"
 
 [features]
 std = ['alloc']
-alloc = ['serde_json', 'openssl', 'hex/default']
+alloc = ['serde_json', 'openssl', 'hex/default', 'x509-parser', 'multibase', 'multihash']
 
 [dependencies]
 heapless = { version = "0.8", features = ["serde"] }
@@ -18,27 +18,27 @@ chrono = { version = "0.4", default-features = false }
 serde = { version = "1.0.197", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.114", optional = true }
 serde-json-core = "0.5"
-serde_repr = "0.1.18"
+serde_repr = "0.1"
 hex = { version = "0.4", default-features = false }
+multibase = { version = "0.9", optional = true }
+multihash = { version = "0.19.1", optional = true }
 
 # Hashing
 blake2 = { version = "0.10", default-features = false }
-sha2 = { version = "0.10.8", default-features = false }
+sha2 = { version = "0.10", default-features = false }
 
-# openssl
+# openssl (x509)
 openssl = { version = "0.10.64", features = ["vendored"], optional = true }
 
 # Encryption
 chacha20poly1305 = { version = "0.10", default-features = false }
 x25519-dalek = { version = "2.0", default-features = false }
-#dryoc = { version = "0.5.0" }
-##dryoc = { version = "0.4" }
-#zeroize = { version = "1.6.0", default-features = false }
 
 # Signature
 ed25519-dalek = { version = "2.1", default-features = false }
 
 # x509
+x509-parser = { version = "0.16.0", optional = true }
 
 [dev-dependencies]
 test-log = "0.2.15"

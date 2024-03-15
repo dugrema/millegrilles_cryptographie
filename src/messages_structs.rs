@@ -345,13 +345,15 @@ impl<'a, const C: usize> From<&'a MessageMilleGrillesRef<'a, C>> for HacheurMess
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
+/// Version du buffer de MessagesMilleGrilles qui support alloc (Vec sur heap)
+/// Preferer cette version si alloc est disponible.
 pub struct MessageMilleGrillesBufferAlloc<const C: usize> {
     /// Buffer dans la stack
     pub buffer: std::vec::Vec<u8>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<const C: usize> MessageMilleGrillesBufferAlloc<C> {
 
     pub fn new() -> MessageMilleGrillesBufferAlloc<C> {
@@ -378,6 +380,8 @@ impl<const C: usize> MessageMilleGrillesBufferAlloc<C> {
 
 pub type MessageMilleGrillesBufferHeaplessDefault = MessageMilleGrillesBufferHeapless<CONST_BUFFER_MESSAGE_MIN, CONST_NOMBRE_CERTIFICATS_MAX>;
 
+/// Version no_std du buffer pour MessagesMilleGriles qui est Sized.
+/// Fonctionne sur la stack sans alloc.
 pub struct MessageMilleGrillesBufferHeapless<const B: usize, const C: usize> {
     /// Buffer dans la stack
     pub buffer: Vec<u8, B>,
@@ -491,7 +495,7 @@ mod messages_structs_tests {
     #[test_log::test]
     fn test_buffer_heapless() {
         let mut buffer: MessageMilleGrillesBufferHeapless<CONST_BUFFER_MESSAGE_MIN, CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferHeapless::new();
-        buffer.buffer.extend_from_slice(MESSAGE_1.as_bytes());
+        buffer.buffer.extend_from_slice(MESSAGE_1.as_bytes()).unwrap();
         let mut parsed = buffer.parse().unwrap();
         parsed.verifier_signature().unwrap();
         debug!("Parsed id: {}", parsed.id);

@@ -5,15 +5,14 @@ use ed25519_dalek::SigningKey;
 use heapless::{String, Vec};
 
 use crate::ed25519::{MessageId, signer_into};
-use crate::hachages::{HacheurInterne, HacheurBlake2s256};
 use crate::messages_structs::{HacheurMessage, MessageKind, MessageMilleGrillesRef,
                               MessageMilleGrillesRefDefault, RoutageMessage,
                               DechiffrageInterMillegrille,
                               CONST_NOMBRE_CERTIFICATS_MAX};
 
-const CONST_ELEMS_MAX: usize = 10;
-
-type VecElements<'a> = Vec<&'a [u8], CONST_ELEMS_MAX>;
+// const CONST_ELEMS_MAX: usize = 10;
+//
+// type VecElements<'a> = Vec<&'a [u8], CONST_ELEMS_MAX>;
 
 pub type MessageMilleGrillesBuilderDefault<'a> = MessageMilleGrillesBuilder<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
 
@@ -62,7 +61,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 
     /// Version std avec un Vec qui supporte alloc. Permet de traiter des messages de grande taille.
     #[cfg(feature = "std")]
-    pub fn build_into_alloc<'b>(self, buffer: &'b mut std::vec::Vec<u8>) -> Result<(MessageMilleGrillesRef<'b, C>), &'static str> {
+    pub fn build_into_alloc<'b>(self, buffer: &'b mut std::vec::Vec<u8>) -> Result<MessageMilleGrillesRef<'b, C>, &'static str> {
         // Calculer pubkey
         let verifying_key = self.signing_key.verifying_key();
         let pubkey_bytes = verifying_key.as_bytes();
@@ -91,7 +90,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         };
 
         // Ecrire dans buffer
-        let mut message_vec = match serde_json::to_vec(&message_ref) {
+        let message_vec = match serde_json::to_vec(&message_ref) {
             Ok(resultat) => resultat,
             Err(e) => {
                 error!("build_into Erreur serde_json::to_string {:?}", e);
@@ -189,7 +188,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 mod messages_structs_tests {
     use super::*;
     use log::info;
-    use crate::messages_structs::{CONST_BUFFER_MESSAGE_MIN, MessageMilleGrillesBufferHeapless};
+    use crate::messages_structs::CONST_BUFFER_MESSAGE_MIN;
 
     const MESSAGE_1: &str = r#"{
       "id": "d49a375c980f1e70cdea697664610d70048899d1428909fdc29bd29cfc9dd1ca",
@@ -224,8 +223,8 @@ mod messages_structs_tests {
         let signing_key = SigningKey::from_bytes(b"01234567890123456789012345678901");
         let routage = RoutageMessage::for_action("Test", "test");
         let mut certificat: Vec<&str, CONST_NOMBRE_CERTIFICATS_MAX> = Vec::new();
-        certificat.push("CERTIFICAT 1");
-        certificat.push("CERTIFICAT 2");
+        certificat.push("CERTIFICAT 1").unwrap();
+        certificat.push("CERTIFICAT 2").unwrap();
 
         let generateur = MessageMilleGrillesBuilderDefault::new(
             MessageKind::Commande, contenu, estampille, &signing_key)
@@ -248,8 +247,8 @@ mod messages_structs_tests {
         let signing_key = SigningKey::from_bytes(b"01234567890123456789012345678901");
         let routage = RoutageMessage::for_action("Test", "test");
         let mut certificat: Vec<&str, CONST_NOMBRE_CERTIFICATS_MAX> = Vec::new();
-        certificat.push("CERTIFICAT 1");
-        certificat.push("CERTIFICAT 2");
+        certificat.push("CERTIFICAT 1").unwrap();
+        certificat.push("CERTIFICAT 2").unwrap();
 
         let generateur = MessageMilleGrillesBuilderDefault::new(
             MessageKind::Commande, contenu, estampille, &signing_key)
