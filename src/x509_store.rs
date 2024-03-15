@@ -179,11 +179,11 @@ impl ValidateurX509 for ValidateurX509Impl {
                 for cert in &enveloppe.chaine {
                     let not_valid_after = match not_valid_after(&cert) {
                         Ok(inner) => inner,
-                        Err(e) => Err(Error::Str("ValidateurX509Impl::valider Erreur chargement not_valid_after"))?
+                        Err(e) => Err(Error::String(format!("ValidateurX509Impl::valider Erreur chargement not_valid_after : {:?}", e)))?
                     };
                     let not_valid_before = match not_valid_before(&cert) {
                         Ok(inner) => inner,
-                        Err(e) => Err(Error::Str("ValidateurX509Impl::valider Erreur chargement not_valid_before"))?
+                        Err(e) => Err(Error::String(format!("ValidateurX509Impl::valider Erreur chargement not_valid_before : {:?}", e)))?
                     };
                     if &not_valid_before > inner || &not_valid_after < inner {
                         Err(Error::Str("ValidateurX509Impl::valider Certificat hors date"))?
@@ -453,7 +453,6 @@ impl RegleValidation for RegleValidationIdmg {
 mod messages_structs_tests {
     use super::*;
     use log::info;
-    use x509_parser::nom::combinator::value;
 
     const CERT_1: &str = r#"-----BEGIN CERTIFICATE-----
 MIIClDCCAkagAwIBAgIUQuFP9EOrsQuFkWnXEH8UQNZ1EN4wBQYDK2VwMHIxLTAr

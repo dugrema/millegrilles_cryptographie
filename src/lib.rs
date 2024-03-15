@@ -2,7 +2,6 @@
 
 extern crate core;
 
-mod verification;
 pub mod ed25519;
 mod x25519;
 pub mod hachages;
