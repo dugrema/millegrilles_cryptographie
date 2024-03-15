@@ -1,25 +1,23 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::fmt::{Debug, Formatter};
+use std::fs::read_to_string;
 use std::ops::Deref;
-use std::sync::Arc;
-use std::time::Instant;
+use std::path::PathBuf;
 
 use chrono::{prelude::*, format::ParseError, DateTime};
-use log::{debug, warn};
+use log::debug;
 use multibase::{Base, encode};
 use multihash::Multihash;
 use openssl::asn1::Asn1TimeRef;
 use openssl::error::ErrorStack;
 use openssl::nid::Nid;
 use openssl::pkey::{PKey, Private, Public};
-use openssl::stack::{Stack, StackRef};
-use openssl::x509::{X509, X509Ref, X509Req, X509ReqRef, X509StoreContext};
-use openssl::x509::store::X509Store;
+use openssl::x509::{X509, X509Ref, X509Req, X509ReqRef};
 use x509_parser::parse_x509_certificate;
 use blake2::{Blake2s256, Digest};
 
 use crate::hachages::HachageCode;
+use crate::messages_structs::{MessageKind, MessageMilleGrillesRefDefault};
 use crate::securite::Securite;
 
 // OID des extensions x509v3 de MilleGrille
@@ -29,11 +27,6 @@ const OID_DOMAINES: &str = "1.2.3.4.2";
 const OID_USERID: &str = "1.2.3.4.3";
 const OID_DELEGATION_GLOBALE: &str = "1.2.3.4.4";
 const OID_DELEGATION_DOMAINES: &str = "1.2.3.4.5";
-
-#[inline]
-pub fn charger_certificat(pem: &str) -> Result<X509, ErrorStack> {
-    X509::from_pem(pem.as_bytes())
-}
 
 #[inline]
 pub fn charger_csr(pem: &str) -> Result<X509Req, ErrorStack> {
@@ -99,7 +92,10 @@ pub fn calculer_idmg_ref(cert: &X509Ref) -> Result<String, String> {
 
     // Date expiration ( ceil(epoch sec/1000) )
     let not_after: &Asn1TimeRef = cert.not_after();
-    let date_parsed = EnveloppeCertificat::formatter_date_epoch(not_after).expect("Erreur parsing date expiration pour calculer_idmg");
+    let date_parsed = match EnveloppeCertificat::formatter_date_epoch(not_after) {
+        Ok(inner) => inner,
+        Err(e) => Err(format!("Erreur parsing date expiration pour calculer_idmg : {:?}", e))?
+    };
 
     // Calculer expiration avec ceil(epoch / 1000), permet de reduire la date a u32.
     let epoch_ts: f64 = date_parsed.timestamp() as f64;
@@ -125,6 +121,14 @@ impl EnveloppeCertificat {
         self.fingerprint_pk()
     }
 
+    pub fn pubkey(&self) -> Result<Vec<u8>, String> {
+        let pk: PKey<Public> = self.certificat.public_key().unwrap();
+        match pk.raw_public_key() {
+            Ok(inner) => Ok(inner),
+            Err(e) => Err(format!("EnveloppeCertificat::pubkey Erreur {:?}", e))?
+        }
+    }
+
     pub fn not_valid_before(&self) -> Result<DateTime<Utc>, String> {
         let not_before: &Asn1TimeRef = self.certificat.not_before();
         match EnveloppeCertificat::formatter_date_epoch(not_before) {
@@ -146,7 +150,10 @@ impl EnveloppeCertificat {
         let subject_name = certificat.subject_name();
         for entry in subject_name.entries_by_nid(Nid::ORGANIZATIONNAME) {
             let data = entry.data().as_slice().to_vec();
-            return Ok(String::from_utf8(data).expect("Erreur chargement IDMG"))
+            return match String::from_utf8(data) {
+                Ok(inner) => Ok(inner),
+                Err(e) => Err(format!("Erreur chargement IDMG : {:?}", e))
+            }
         }
         Err("IDMG non present sur certificat (OrganizationName)".into())
     }
@@ -202,14 +209,13 @@ impl EnveloppeCertificat {
     pub fn est_ca(&self) -> Result<bool, String> {
         let subject = self.subject()?;
         let issuer = self.issuer()?;
-
         Ok(subject == issuer)
     }
 
     pub fn formatter_date_epoch(date: &Asn1TimeRef) -> Result<DateTime<Utc>, ParseError> {
-        let str_date = date.to_string();
-        match DateTime::parse_from_str(&str_date, "%b %d %T %Y %Z") {
-            Ok(inner) => Ok(inner.to_utc()),
+        let date_string = date.to_string();
+        match Utc.datetime_from_str(date_string.as_str(), "%b %d %T %Y %Z") {
+            Ok(inner) => Ok(inner),
             Err(e) => Err(e)
         }
     }
@@ -230,6 +236,38 @@ impl EnveloppeCertificat {
         }
     }
 
+    pub fn extensions(&self) -> Result<ExtensionsMilleGrille, String> {
+        match self.certificat.to_der() {
+            Ok(inner) => parse_x509(inner.as_slice()),
+            Err(e) => Err(format!("EnveloppeCertificat::extensions Erreur {:?}", e))
+        }
+    }
+
+    pub fn chaine_pem(&self) -> Vec<String> {
+        let mut vec = Vec::with_capacity(3);
+        for c in &self.chaine {
+            vec.push(String::from_utf8(c.to_pem().unwrap()).unwrap());
+        }
+        vec
+    }
+}
+
+impl TryFrom<&str> for EnveloppeCertificat {
+    type Error = String;
+
+    fn try_from<'a>(value: &str) -> Result<Self, Self::Error> {
+        let pem = value.into();
+        let chaine = match charger_chaine(pem) {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppeCertificat::try_from PEM invalide : {:?}", e))?
+        };
+        let certificat = match chaine.get(0) {
+            Some(inner) => inner.to_owned(),
+            None => Err(String::from("EnveloppeCertificat::try_from Erreur aucuns cerificats"))?
+        };
+
+        Ok(Self {certificat, chaine, millegrille: None})
+    }
 }
 
 impl Debug for EnveloppeCertificat {
@@ -265,6 +303,71 @@ impl EnveloppePrivee {
         Self { enveloppe_pub, enveloppe_ca, cle_privee, chaine_pem, ca_pem, cle_privee_pem }
     }
 
+    pub fn from_files(cert: &PathBuf, key: &PathBuf, ca: &PathBuf) -> Result<Self, String> {
+        let chaine_pem_string = match read_to_string(cert) {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppePrivee from_files Erreur read_to_string cert : {:?}", e))?
+        };
+        let cle_privee_pem = match read_to_string(key) {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppePrivee from_files Erreur read_to_string key : {:?}", e))?
+        };
+        let ca_pem = match read_to_string(ca) {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppePrivee from_files Erreur read_to_string ca : {:?}", e))?
+        };
+        let enveloppe_pub = match EnveloppeCertificat::try_from(chaine_pem_string.as_str()) {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppePrivee from_files Erreur try_from cert : {:?}", e))?
+        };
+        let cle_privee: PKey<Private> = match PKey::private_key_from_pem(cle_privee_pem.as_str().as_bytes()) {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppePrivee from_files Erreur try_from cert : {:?}", e))?
+        };
+        let enveloppe_ca = match EnveloppeCertificat::try_from(ca_pem.as_str()) {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppePrivee from_files Erreur try_from ca : {:?}", e))?
+        };
+
+        let chaine_pem = enveloppe_pub.chaine_pem();
+        let enveloppe = EnveloppePrivee {
+            enveloppe_pub, enveloppe_ca, cle_privee, chaine_pem, ca_pem, cle_privee_pem
+        };
+
+        // Verifier que le CA, cert et cle privee correspondent. Lance une Err au besoin.
+        enveloppe.verifier_correspondance()?;
+
+        Ok(enveloppe)
+    }
+
+    fn verifier_correspondance(&self) -> Result<(), String> {
+        // Verifier que la cle privee correspond au certificat (pubkey)
+        let pubkey_vec = self.enveloppe_pub.pubkey()?;
+        let private_pubkey_vec = match self.cle_privee.raw_public_key() {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppeCertificat::verifier_correspondance Erreur cle privee -> public_key() {:?}", e))?
+        };
+
+        debug!("Cle publiques cert et privkey vec\n{:?}\n{:?}", pubkey_vec, private_pubkey_vec);
+
+        if pubkey_vec.as_slice() != private_pubkey_vec.as_slice() {
+            Err(String::from("EnveloppeCertificat::verifier_correspondance Mismatch cle publique/privee"))?
+        }
+
+        // Verifier que le CA correspond au certificat
+        let idmg_cert = self.enveloppe_pub.idmg()?;
+        let idmg_ca = self.enveloppe_ca.calculer_idmg()?;
+        if idmg_cert != idmg_ca {
+            Err(String::from("Mismatch CA et cert (idmg)"))?
+        }
+
+        if ! self.enveloppe_ca.est_ca()? {
+            Err(String::from("Certificat CA n'est pas self-signed"))?
+        }
+
+        Ok(())
+    }
+
     pub fn fingerprint(&self) -> Result<String, ErrorStack> {
         let pk = self.enveloppe_pub.certificat.public_key()?;
         calculer_fingerprint_pk(&pk)
@@ -294,7 +397,10 @@ pub fn get_csr_subject(csr: &X509ReqRef) -> Result<HashMap<String, String>, Stri
 }
 
 fn parse_x509(cert: &[u8]) -> Result<ExtensionsMilleGrille, String> {
-    let (_, cert_parsed) = parse_x509_certificate(&cert).expect("Erreur parsing X509");
+    let (_, cert_parsed) = match parse_x509_certificate(&cert) {
+        Ok(inner) => inner,
+        Err(e) => Err(format!("Erreur parsing X509 : {:?}", e))?
+    };
     debug!("Certificat X509 parsed : {:?}", cert_parsed);
 
     let extensions = cert_parsed.extensions();
@@ -355,6 +461,18 @@ impl ExtensionsMilleGrille {
     }
 }
 
+impl TryFrom<X509Ref> for ExtensionsMilleGrille {
+    type Error = String;
+
+    fn try_from(value: X509Ref) -> Result<Self, Self::Error> {
+        let cert_der = match value.to_der() {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("TryFrom<X509Ref> Erreur {:?}", e))?
+        };
+        parse_x509(&cert_der)
+    }
+}
+
 fn extraire_vec_strings(data: &[u8]) -> Result<Vec<String>, String> {
     let value= String::from_utf8(data.to_vec()).expect("Erreur lecture exchanges");
     let split = value.split(",");
@@ -364,4 +482,116 @@ fn extraire_vec_strings(data: &[u8]) -> Result<Vec<String>, String> {
     }
 
     Ok(vec)
+}
+
+#[cfg(test)]
+mod messages_structs_tests {
+    use super::*;
+    use log::info;
+
+    const CERT_1: &str = r#"-----BEGIN CERTIFICATE-----
+MIIClDCCAkagAwIBAgIUQuFP9EOrsQuFkWnXEH8UQNZ1EN4wBQYDK2VwMHIxLTAr
+BgNVBAMTJGY4NjFhYWZkLTUyOTctNDA2Zi04NjE3LWY3Yjg4MDlkZDQ0ODFBMD8G
+A1UEChM4emVZbmNScUVxWjZlVEVtVVo4d2hKRnVIRzc5NmVTdkNUV0U0TTQzMml6
+WHJwMjJiQXR3R203SmYwHhcNMjQwMjIwMTE0NjUzWhcNMjQwMzIyMTE0NzEzWjCB
+gTEtMCsGA1UEAwwkZjg2MWFhZmQtNTI5Ny00MDZmLTg2MTctZjdiODgwOWRkNDQ4
+MQ0wCwYDVQQLDARjb3JlMUEwPwYDVQQKDDh6ZVluY1JxRXFaNmVURW1VWjh3aEpG
+dUhHNzk2ZVN2Q1RXRTRNNDMyaXpYcnAyMmJBdHdHbTdKZjAqMAUGAytlcAMhANHZ
+whRt4OWZcSSUidlxR4BQ1VvJE93uugvzxg3Vss0xo4HdMIHaMCsGBCoDBAAEIzQu
+c2VjdXJlLDMucHJvdGVnZSwyLnByaXZlLDEucHVibGljMAwGBCoDBAEEBGNvcmUw
+TAYEKgMEAgREQ29yZUJhY2t1cCxDb3JlQ2F0YWxvZ3VlcyxDb3JlTWFpdHJlRGVz
+Q29tcHRlcyxDb3JlUGtpLENvcmVUb3BvbG9naWUwDwYDVR0RBAgwBoIEY29yZTAf
+BgNVHSMEGDAWgBRQUbOqbsQcXmnk3+moqmk1PXOGKjAdBgNVHQ4EFgQU4+j+8rBR
+K+WeiFzo6EIR+t0C7o8wBQYDK2VwA0EAab2vFykbUk1cWugRd10rGiTKp/PKZdG5
+X+Y+lrHe8AHcrpGGtUV8mwwcDsRbw2wtRq2ENceNlQAcwblEkxLvCA==
+-----END CERTIFICATE-----
+"#;
+
+    const CERT_INTER: &str = r#"-----BEGIN CERTIFICATE-----
+MIIBozCCAVWgAwIBAgIKAnY5ZhNJUlVzaTAFBgMrZXAwFjEUMBIGA1UEAxMLTWls
+bGVHcmlsbGUwHhcNMjQwMTMwMTM1NDU3WhcNMjUwODEwMTM1NDU3WjByMS0wKwYD
+VQQDEyRmODYxYWFmZC01Mjk3LTQwNmYtODYxNy1mN2I4ODA5ZGQ0NDgxQTA/BgNV
+BAoTOHplWW5jUnFFcVo2ZVRFbVVaOHdoSkZ1SEc3OTZlU3ZDVFdFNE00MzJpelhy
+cDIyYkF0d0dtN0pmMCowBQYDK2VwAyEAPUMU7tlz3HCEB+VzG8NVFQ/nFKjIOZmV
+egt+ub3/7SajYzBhMBIGA1UdEwEB/wQIMAYBAf8CAQAwCwYDVR0PBAQDAgEGMB0G
+A1UdDgQWBBRQUbOqbsQcXmnk3+moqmk1PXOGKjAfBgNVHSMEGDAWgBTTiP/MFw4D
+DwXqQ/J2LLYPRUkkETAFBgMrZXADQQB6S4tids+r9e5d+mwpdkrAE2k3+8H0x65z
+WD5eP7A2XeEr0LbxRPNyaO+Q8fvnjjCKasn97MTPSCXnU/4JbWYK
+-----END CERTIFICATE-----
+"#;
+
+    const CERT_CA: &str = r#"-----BEGIN CERTIFICATE-----
+MIIBQzCB9qADAgECAgoHBykXJoaCCWAAMAUGAytlcDAWMRQwEgYDVQQDEwtNaWxs
+ZUdyaWxsZTAeFw0yMjAxMTMyMjQ3NDBaFw00MjAxMTMyMjQ3NDBaMBYxFDASBgNV
+BAMTC01pbGxlR3JpbGxlMCowBQYDK2VwAyEAnnixameVCZAzfx4dO+L63DOk/34I
+/TC4fIA1Rxn19+KjYDBeMA8GA1UdEwEB/wQFMAMBAf8wCwYDVR0PBAQDAgLkMB0G
+A1UdDgQWBBTTiP/MFw4DDwXqQ/J2LLYPRUkkETAfBgNVHSMEGDAWgBTTiP/MFw4D
+DwXqQ/J2LLYPRUkkETAFBgMrZXADQQBSb0vXhw3pw25qrWoMjqROjawe7/kMlu7p
+MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
+-----END CERTIFICATE-----
+"#;
+
+    #[test_log::test]
+    fn test_try_from_str_1cert() {
+        let cert = EnveloppeCertificat::try_from(CERT_1).unwrap();
+        info!("Certificat charge OK : {}", cert.fingerprint().unwrap());
+        assert_eq!("d1d9c2146de0e59971249489d971478050d55bc913ddeeba0bf3c60dd5b2cd31", cert.fingerprint().unwrap());
+        assert_eq!(1, cert.chaine.len());
+        assert_eq!("f861aafd-5297-406f-8617-f7b8809dd448", cert.get_common_name().unwrap());
+        let subject = cert.subject().unwrap();
+        info!("Subject : {:?}", subject);
+        assert_eq!("core", subject.get("organizationalUnitName").unwrap());
+        let idmg = cert.idmg().unwrap();
+        assert_eq!("zeYncRqEqZ6eTEmUZ8whJFuHG796eSvCTWE4M432izXrp22bAtwGm7Jf", idmg.as_str());
+    }
+
+    #[test_log::test]
+    fn test_try_from_str_chaine() {
+        let chaine = vec![CERT_1, CERT_INTER].join("\n");
+        let cert = EnveloppeCertificat::try_from(chaine.as_str()).unwrap();
+        info!("Certificat charge OK : {}", cert.fingerprint().unwrap());
+        assert_eq!("d1d9c2146de0e59971249489d971478050d55bc913ddeeba0bf3c60dd5b2cd31", cert.fingerprint().unwrap());
+        assert_eq!(2, cert.chaine.len());
+    }
+
+    #[test_log::test]
+    fn test_extensions() {
+        let cert = EnveloppeCertificat::try_from(CERT_1).unwrap();
+        let extensions = cert.extensions().unwrap();
+        info!("Extensions : {:?}", extensions);
+        let roles = extensions.roles.unwrap();
+        assert_eq!("core", roles.get(0).unwrap());
+        let securite = extensions.exchanges.unwrap();
+        assert_eq!(4, securite.len());
+        assert_eq!("4.secure", securite.get(0).unwrap());
+    }
+
+    #[test_log::test]
+    fn test_idmg() {
+        let cert = EnveloppeCertificat::try_from(CERT_CA).unwrap();
+        let idmg = cert.calculer_idmg().unwrap();
+        assert_eq!("zeYncRqEqZ6eTEmUZ8whJFuHG796eSvCTWE4M432izXrp22bAtwGm7Jf", idmg.as_str());
+        assert!(cert.est_ca().unwrap());
+    }
+
+    #[test_log::test]
+    fn test_enveloppe_privee() {
+        let path_cert = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert");
+        let path_key = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cle");
+        let path_ca = PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert");
+
+        // Charger enveloppe. Verifie automatiquement la correspondance.
+        assert!(EnveloppePrivee::from_files(&path_cert, &path_key, &path_ca).is_ok());
+    }
+
+    #[test_log::test]
+    fn test_enveloppe_privee_mismatch_cert() {
+        let path_cert_mauvais = PathBuf::from("/var/opt/millegrilles/secrets/pki.instance.cert");
+        let path_key = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cle");
+        let path_ca = PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert");
+
+        // Charger enveloppe. Verifie automatiquement la correspondance.
+        assert!(EnveloppePrivee::from_files(&path_cert_mauvais, &path_key, &path_ca).is_err());
+    }
+
 }
