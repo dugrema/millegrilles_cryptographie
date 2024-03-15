@@ -17,7 +17,6 @@ use x509_parser::parse_x509_certificate;
 use blake2::{Blake2s256, Digest};
 
 use crate::hachages::HachageCode;
-use crate::messages_structs::{MessageKind, MessageMilleGrillesRefDefault};
 use crate::securite::Securite;
 
 // OID des extensions x509v3 de MilleGrille
@@ -303,6 +302,37 @@ impl EnveloppePrivee {
         Self { enveloppe_pub, enveloppe_ca, cle_privee, chaine_pem, ca_pem, cle_privee_pem }
     }
 
+    pub fn from_str<C,K,A>(cert: C, key: K, ca: A) -> Result<Self, String>
+        where C: AsRef<str>, K: ToString, A: ToString
+    {
+        let cert = cert.as_ref();
+        let key = key.to_string();
+        let ca = ca.to_string();
+
+        let enveloppe_pub = match EnveloppeCertificat::try_from(cert) {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppePrivee from_str Erreur try_from cert : {:?}", e))?
+        };
+        let cle_privee: PKey<Private> = match PKey::private_key_from_pem(key.as_bytes()) {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppePrivee from_str Erreur try_from cert : {:?}", e))?
+        };
+        let enveloppe_ca = match EnveloppeCertificat::try_from(ca.as_str()) {
+            Ok(inner) => inner,
+            Err(e) => Err(format!("EnveloppePrivee from_str Erreur try_from ca : {:?}", e))?
+        };
+
+        let chaine_pem = enveloppe_pub.chaine_pem();
+        let enveloppe = EnveloppePrivee {
+            enveloppe_pub, enveloppe_ca, cle_privee, chaine_pem, ca_pem: ca, cle_privee_pem: key
+        };
+
+        // Verifier que le CA, cert et cle privee correspondent. Lance une Err au besoin.
+        enveloppe.verifier_correspondance()?;
+
+        Ok(enveloppe)
+    }
+
     pub fn from_files(cert: &PathBuf, key: &PathBuf, ca: &PathBuf) -> Result<Self, String> {
         let chaine_pem_string = match read_to_string(cert) {
             Ok(inner) => inner,
@@ -316,28 +346,7 @@ impl EnveloppePrivee {
             Ok(inner) => inner,
             Err(e) => Err(format!("EnveloppePrivee from_files Erreur read_to_string ca : {:?}", e))?
         };
-        let enveloppe_pub = match EnveloppeCertificat::try_from(chaine_pem_string.as_str()) {
-            Ok(inner) => inner,
-            Err(e) => Err(format!("EnveloppePrivee from_files Erreur try_from cert : {:?}", e))?
-        };
-        let cle_privee: PKey<Private> = match PKey::private_key_from_pem(cle_privee_pem.as_str().as_bytes()) {
-            Ok(inner) => inner,
-            Err(e) => Err(format!("EnveloppePrivee from_files Erreur try_from cert : {:?}", e))?
-        };
-        let enveloppe_ca = match EnveloppeCertificat::try_from(ca_pem.as_str()) {
-            Ok(inner) => inner,
-            Err(e) => Err(format!("EnveloppePrivee from_files Erreur try_from ca : {:?}", e))?
-        };
-
-        let chaine_pem = enveloppe_pub.chaine_pem();
-        let enveloppe = EnveloppePrivee {
-            enveloppe_pub, enveloppe_ca, cle_privee, chaine_pem, ca_pem, cle_privee_pem
-        };
-
-        // Verifier que le CA, cert et cle privee correspondent. Lance une Err au besoin.
-        enveloppe.verifier_correspondance()?;
-
-        Ok(enveloppe)
+        EnveloppePrivee::from_str(chaine_pem_string, cle_privee_pem, ca_pem)
     }
 
     fn verifier_correspondance(&self) -> Result<(), String> {
@@ -430,12 +439,12 @@ fn parse_x509(cert: &[u8]) -> Result<ExtensionsMilleGrille, String> {
 
 #[derive(Clone, Debug)]
 pub struct ExtensionsMilleGrille {
-    exchanges: Option<Vec<String>>,
-    roles: Option<Vec<String>>,
-    domaines: Option<Vec<String>>,
+    pub exchanges: Option<Vec<String>>,
+    pub roles: Option<Vec<String>>,
+    pub domaines: Option<Vec<String>>,
     pub user_id: Option<String>,
-    delegation_globale: Option<String>,
-    delegation_domaines: Option<Vec<String>>,
+    pub delegation_globale: Option<String>,
+    pub delegation_domaines: Option<Vec<String>>,
 }
 
 impl ExtensionsMilleGrille {
