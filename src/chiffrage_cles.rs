@@ -1,302 +1,131 @@
-// use std::collections::HashMap;
-// use std::error::Error;
-//
-// use blake2::{Blake2s256, Digest};
-// use log::debug;
-// use openssl::pkey::{Id, PKey};
-// use serde::{Deserialize, Serialize};
-// use serde_json::{json, Map, Value};
-//
-// use crate::bson::Document;
-// use crate::certificats::{EnveloppePrivee, ordered_map};
-// use crate::chiffrage::{CleSecrete, FormatChiffrage};
-// use crate::chiffrage_ed25519::dechiffrer_asymmetrique_ed25519;
-// use crate::constantes::*;
-// use crate::formatteur_messages::MessageMilleGrille;
-// use crate::generateur_messages::{GenerateurMessages, RoutageMessageAction};
-// use crate::recepteur_messages::TypeMessage;
-// use crate::signatures::{signer_identite, signer_message, verifier_message};
-//
-// /// Effectue une requete pour charger des cles a partir du maitre des cles
-// pub async fn requete_charger_cles<M>(middleware: &M, hachage_bytes: &Vec<String>)
-//                                      -> Result<ReponseDechiffrageCles, String>
-//     where M: GenerateurMessages
-// {
-//     let routage = RoutageMessageAction::builder(
-//         DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE)
-//         .build();
-//
-//     let requete = json!({"liste_hachage_bytes": hachage_bytes});
-//
-//     match middleware.transmettre_requete(routage, &requete).await? {
-//         TypeMessage::Valide(r) => {
-//             match r.message.parsed.map_contenu() {
-//                 Ok(r) => Ok(r),
-//                 Err(e) => Err(format!("chiffrage_cle.requete_charger_cles Erreur mapping REponseDechiffrageCles: {:?}", e))
-//             }
-//         },
-//         _ => Err(format!("chiffrage_cles.requete_charger_cles Mauvais type de reponse pour les cles"))
-//     }
-// }
-//
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct ReponseDechiffrageCles {
-//     pub acces: String,
-//     pub cles: Option<HashMap<String, InformationCle>>
-// }
-//
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct InformationCle {
-//     pub cle: String,
-//     pub domaine: String,
-//     pub format: String,
-//     pub hachage_bytes: String,
-//     pub identificateurs_document: Option<HashMap<String, String>>,
-//     pub iv: Option<String>,
-//     pub tag: Option<String>,
-//     pub header: Option<String>,
-//     // pub signature_identite: String,
-// }
-//
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct MetaInformationCle {
-//     pub domaine: String,
-//     pub format: String,
-//     pub hachage_bytes: String,
-//     pub identificateurs_document: Option<HashMap<String, String>>,
-//     pub iv: Option<String>,
-//     pub tag: Option<String>,
-//     pub header: Option<String>,
-//     // pub signature_identite: String,
-// }
-//
-// impl From<InformationCle> for MetaInformationCle {
-//     fn from(value: InformationCle) -> Self {
-//         MetaInformationCle {
-//             domaine: value.domaine,
-//             format: value.format,
-//             hachage_bytes: value.hachage_bytes,
-//             identificateurs_document: value.identificateurs_document,
-//             iv: value.iv,
-//             tag: value.tag,
-//             header: value.header,
-//             // signature_identite: value.signature_identite,
-//         }
-//     }
-// }
-//
-// // Structure qui conserve une cle chiffree pour un fingerprint de certificat
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct FingerprintCleChiffree {
-//     pub fingerprint: String,
-//     pub cle_chiffree: String,
-// }
-//
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct CommandeSauvegarderCle {
-//     // Identite de la cle
-//     pub hachage_bytes: String,
-//     pub domaine: String,
-//     #[serde(serialize_with = "ordered_map")]
-//     pub identificateurs_document: HashMap<String, String>,
-//     // pub signature_identite: String,
-//
-//     // Cles chiffrees
-//     #[serde(serialize_with = "ordered_map")]
-//     pub cles: HashMap<String, String>,
-//
-//     // Information de dechiffrage
-//     pub format: FormatChiffrage,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub iv: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub tag: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub header: Option<String>,
-//
-//     /// Partitions de maitre des cles (fingerprint certs). Utilise pour routage de la commande.
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub partition: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub fingerprint_partitions: Option<Vec<String>>
-// }
-//
-// /// Converti en Document Bson pour sauvegarder dans MongoDB
-// impl Into<Document> for CommandeSauvegarderCle {
-//     fn into(self) -> Document {
-//         let val = serde_json::to_value(self).expect("value");
-//         serde_json::from_value(val).expect("bson")
-//     }
-// }
-//
-// impl CommandeSauvegarderCle {
-//
-//     // pub fn signer_identite(&mut self, cle_secrete: &CleSecrete) -> Result<(), String> {
-//     //     let identite = IdentiteCle::from(self.clone());
-//     //     let signature_identite = identite.signer(cle_secrete)?;
-//     //     self.signature_identite = signature_identite;
-//     //     Ok(())
-//     // }
-//
-//     // pub fn verifier_identite(&self, cle_secrete: &CleSecrete) -> Result<bool, String> {
-//     //     let identite = IdentiteCle::from(self.clone());
-//     //     Ok(identite.verifier(cle_secrete)?)
-//     // }
-//
-// }
-//
-// // #[derive(Clone, Debug, Serialize, Deserialize)]
-// // pub struct IdentiteCle {
-// //     pub hachage_bytes: String,
-// //     pub domaine: String,
-// //     #[serde(serialize_with = "ordered_map")]
-// //     pub identificateurs_document: HashMap<String, String>,
-// //     #[serde(skip_serializing)]
-// //     pub signature_identite: String,
-// // }
-//
-// // impl From<CommandeSauvegarderCle> for IdentiteCle {
-// //     fn from(value: CommandeSauvegarderCle) -> Self {
-// //         IdentiteCle {
-// //             hachage_bytes: value.hachage_bytes,
-// //             domaine: value.domaine,
-// //             identificateurs_document: value.identificateurs_document,
-// //             signature_identite: value.signature_identite
-// //         }
-// //     }
-// // }
-//
-// // impl IdentiteCle {
-// //
-// //     /// Verifie la signature de l'identite avec la cle secrete
-// //     pub fn verifier(&self, cle_secrete: &CleSecrete) -> Result<bool, String> {
-// //         // Hacher la cle secrete, va servir de cle privee Ed25519
-// //         let mut hasher = Blake2s256::new();
-// //         hasher.update(&cle_secrete.0);
-// //         let cle_privee_bytes = hasher.finalize();
-// //
-// //         // Obtenir la cle publique Ed25519 qui correspond au seed prive
-// //         let private_ed25519 = match PKey::private_key_from_raw_bytes(&cle_privee_bytes.as_slice(), Id::ED25519) {
-// //             Ok(s) => s,
-// //             Err(e) => Err(format!("IdentiteCle.verifier Erreur preparation secret key : {:?}", e))?
-// //         };
-// //         let public_bytes = match private_ed25519.raw_public_key() {
-// //             Ok(p) => p,
-// //             Err(e) => Err(format!("IdentiteCle.verifier Erreur private_ed25519.raw_public_key : {:?}", e))?
-// //         };
-// //         let public_ed25519 = match PKey::public_key_from_raw_bytes(public_bytes.as_slice(), Id::ED25519) {
-// //             Ok(p) => p,
-// //             Err(e) => Err(format!("IdentiteCle.verifier Erreur PKey::public_key_from_raw_bytes : {:?}", e))?
-// //         };
-// //
-// //         // Preparer le message
-// //         let value_ordered: Map<String, Value> = match MessageMilleGrille::serialiser_contenu(self) {
-// //             Ok(v) => v,
-// //             Err(e) => Err(format!("IdentiteCle.verifier Erreur mapping values : {:?}", e))?
-// //         };
-// //         let message_string = match serde_json::to_string(&value_ordered) {
-// //             Ok(m) => m,
-// //             Err(e) => Err(format!("IdentiteCle.verifier Erreur conversion en string : {:?}", e))?
-// //         };
-// //         debug!("IdentiteCle.verifier Message string a verifier {}", message_string);
-// //
-// //         // Verifier la signature
-// //         match verifier_message(&public_ed25519, message_string.as_bytes(), self.signature_identite.as_str()) {
-// //             Ok(r) => Ok(r),
-// //             Err(e) => Err(format!("IdentiteCle.verifier Erreur verification message : {:?}", e))?
-// //         }
-// //     }
-// //
-// //     /// Signe l'identite avec la cle secrete (sert de cle privee Ed25519).
-// //     fn signer(&self, cle_secrete: &CleSecrete) -> Result<String, String> {
-// //
-// //         // Hacher la cle secrete, va servir de cle privee Ed25519
-// //         let mut hasher = Blake2s256::new();
-// //         hasher.update(&cle_secrete.0);
-// //         let cle_privee_bytes = hasher.finalize();
-// //
-// //         let private_ed25519 = match PKey::private_key_from_raw_bytes(cle_privee_bytes.as_slice(), Id::ED25519) {
-// //             Ok(s) => s,
-// //             Err(e) => Err(format!("IdentiteCle.signer Erreur preparation secret key : {:?}", e))?
-// //         };
-// //         let value_ordered: Map<String, Value> = match MessageMilleGrille::serialiser_contenu(self) {
-// //             Ok(v) => v,
-// //             Err(e) => Err(format!("IdentiteCle.signer Erreur mapping values : {:?}", e))?
-// //         };
-// //         let message_string = match serde_json::to_string(&value_ordered) {
-// //             Ok(m) => m,
-// //             Err(e) => Err(format!("IdentiteCle.signer Erreur conversion en string : {:?}", e))?
-// //         };
-// //         debug!("Message string a signer {}", message_string);
-// //         match signer_identite(&private_ed25519, message_string.as_bytes()) {
-// //             Ok(s) => Ok(s),
-// //             Err(e) => Err(format!("IdentiteCle.signer Erreur signature identite cle : {:?}", e))
-// //         }
-// //     }
-// //
-// // }
-//
-// pub struct CleDechiffree {
-//     pub cle: String,
-//     pub cle_secrete: CleSecrete,
-//     pub domaine: String,
-//     pub format: String,
-//     pub hachage_bytes: String,
-//     pub identificateurs_document: Option<HashMap<String, String>>,
-//     pub iv: Option<String>,
-//     pub tag: Option<String>,
-//     pub header: Option<String>,
-//     // pub signature_identite: String,
-// }
-//
-// impl CleDechiffree {
-//     pub fn dechiffrer_information_cle(enveloppe_privee: &EnveloppePrivee, information_cle: InformationCle) -> Result<Self, Box<dyn Error>> {
-//         let (_, cle_bytes) = multibase::decode(&information_cle.cle)?;
-//         let cle_secrete = dechiffrer_asymmetrique_ed25519(&cle_bytes[..], enveloppe_privee.cle_privee())?;
-//
-//         Ok(Self {
-//             cle: information_cle.cle,
-//             cle_secrete,
-//             domaine: information_cle.domaine,
-//             format: information_cle.format,
-//             hachage_bytes: information_cle.hachage_bytes,
-//             identificateurs_document: information_cle.identificateurs_document,
-//             iv: information_cle.iv,
-//             tag: information_cle.tag,
-//             header: information_cle.header,
-//             // signature_identite: information_cle.signature_identite,
-//         })
-//     }
-// }
-//
-// #[cfg(test)]
-// mod test {
-//     use std::error::Error;
-//
-//     use log::debug;
-//
-//     use crate::test_setup::setup;
-//
-//     use super::*;
-//
-//     fn produire_commande() -> CommandeSauvegarderCle {
-//         let mut identificateurs_document = HashMap::new();
-//         identificateurs_document.insert("fuuid".to_string(), "fuuid_dummy".to_string());
-//
-//         CommandeSauvegarderCle {
-//             hachage_bytes: "hachage_dummy".to_string(),
-//             domaine: "DomaineDummy".to_string(),
-//             identificateurs_document,
-//             // signature_identite: "".to_string(),
-//             cles: Default::default(),
-//             format: FormatChiffrage::mgs4,
-//             iv: None,
-//             tag: None,
-//             header: None,
-//             partition: None,
-//             fingerprint_partitions: None
-//         }
-//     }
-//
-// }
-//
+use openssl::pkey::{PKey, Private};
+use serde::{Deserialize, Serialize};
+
+use crate::chiffrage::{CleSecrete, FormatChiffrage};
+use crate::error::Error;
+use crate::x25519::dechiffrer_asymmetrique_ed25519;
+use crate::x509::EnveloppeCertificat;
+
+const X25519_KEY_LEN: usize = 32;
+
+trait CleDechiffrage<const C: usize> {
+    fn cle_chiffree(&self) -> &str;
+    fn cle_secrete(&self) -> Option<&CleSecrete<C>>;
+    fn format(&self) -> FormatChiffrage;
+    fn nonce(&self) -> Option<&String>;
+    fn verification(&self) -> Option<&String>;
+}
+
+trait CleDechiffrageX25519: CleDechiffrage<X25519_KEY_LEN> {
+    fn dechiffrer_x25519(&mut self, cle_dechiffrage: &PKey<Private>) -> Result<(), Error>;
+}
+
+pub struct CleDechiffrageStruct<const C: usize> {
+    /// Cle chiffree encodee en multibase.
+    pub cle_chiffree: String,
+
+    /// Cle secrete dechiffree.
+    pub cle_secrete: Option<CleSecrete<C>>,
+
+    /// Format de chiffrage.
+    pub format: FormatChiffrage,
+
+    /// Nonce ou header selon l'algorithme.
+    pub nonce: Option<String>,
+
+    /// Element de verification selon le format de chiffrage.
+    /// Peut etre un hachage (e.g. blake2s) ou un HMAC (e.g. compute tag de chacha20-poly1305).
+    pub verification: Option<String>,
+}
+
+impl<const C: usize> CleDechiffrage<C> for CleDechiffrageStruct<C> {
+    fn cle_chiffree(&self) -> &str { self.cle_chiffree.as_str() }
+    fn cle_secrete(&self) -> Option<&CleSecrete<C>> { self.cle_secrete.as_ref() }
+    fn format(&self) -> FormatChiffrage { self.format.clone() }
+    fn nonce(&self) -> Option<&String> { self.nonce.as_ref() }
+    fn verification(&self) -> Option<&String> { self.verification.as_ref() }
+}
+
+fn dechiffrer_x25519(cle: &mut CleDechiffrageStruct<X25519_KEY_LEN>, cle_dechiffrage: &PKey<Private>) -> Result<(), Error> {
+    let cle_chiffree_vec = match multibase::decode(&cle.cle_chiffree) {
+        Ok(inner) => inner.1,
+        Err(e) => Err(Error::Multibase(e))?
+    };
+
+    let cle_dechiffree = dechiffrer_asymmetrique_ed25519(cle_chiffree_vec.as_slice(), cle_dechiffrage)?;
+    cle.cle_secrete = Some(cle_dechiffree);
+
+    Ok(())
+}
+
+pub type CleDechiffrageX25519Impl = CleDechiffrageStruct<X25519_KEY_LEN>;
+
+impl CleDechiffrageX25519 for CleDechiffrageX25519Impl {
+    fn dechiffrer_x25519(&mut self, cle_dechiffrage: &PKey<Private>) -> Result<(), Error> {
+        dechiffrer_x25519(self, cle_dechiffrage)
+    }
+}
+
+/// Structure qui conserve une cle chiffree pour un fingerprint de certificat
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FingerprintCleChiffree {
+    /// Fingerprint du certificat correspondant a la cle chiffree.
+    pub fingerprint: String,
+    /// Cle chiffree encodee en multibase
+    pub cle_chiffree: String,
+}
+
+trait CleChiffrage {
+    fn cles_chiffrees(&self) -> &Vec<FingerprintCleChiffree>;
+    fn format(&self) -> FormatChiffrage;
+    fn nonce(&self) -> Option<&String>;
+    fn verification(&self) -> Option<&String>;
+}
+
+trait CleChiffrageX25519: CleChiffrage {
+    fn chiffrer_x25519(&mut self, cles_publiques: Vec<&EnveloppeCertificat>) -> Result<(), Error>;
+}
+
+/// Utilise pour chiffrer une cle secrete avec une ou plusieurs cles publiques (asymetrique).
+pub struct CleChiffrageStruct<const C: usize> {
+    /// Cle secrete dechiffree.
+    pub cle_secrete: CleSecrete<C>,
+
+    /// Cle chiffree encodee en multibase.
+    pub cles_chiffrees: Vec<FingerprintCleChiffree>,
+
+    /// Format de chiffrage.
+    pub format: FormatChiffrage,
+
+    /// Nonce ou header selon l'algorithme.
+    pub nonce: Option<String>,
+
+    /// Element de verification selon le format de chiffrage.
+    /// Peut etre un hachage (e.g. blake2s) ou un HMAC (e.g. compute tag de chacha20-poly1305).
+    pub verification: Option<String>,
+}
+
+impl<const C: usize> CleChiffrage for CleChiffrageStruct<C> {
+    fn cles_chiffrees(&self) -> &Vec<FingerprintCleChiffree> { &self.cles_chiffrees }
+    fn format(&self) -> FormatChiffrage { self.format.clone() }
+    fn nonce(&self) -> Option<&String> { self.nonce.as_ref() }
+    fn verification(&self) -> Option<&String> { self.verification.as_ref() }
+}
+
+pub type CleChiffrageX25519Impl = CleChiffrageStruct<X25519_KEY_LEN>;
+
+impl CleChiffrageX25519 for CleChiffrageX25519Impl {
+    fn chiffrer_x25519(&mut self, cles_publiques: Vec<&EnveloppeCertificat>) -> Result<(), Error> {
+        for cle in cles_publiques {
+            // Recuperer cle publique Ed25519
+            let pubkey_ed25519 = cle.pubkey()?;
+            if pubkey_ed25519.len() != X25519_KEY_LEN {
+                Err(Error::Str("CleChiffrageX25519Impl::chiffrer_x25519 Taille cle publique incorrecte - doit etre 32 bytes"))?
+            }
+
+            // Convertir en X25519
+
+        }
+        Ok(())
+    }
+}

@@ -21,6 +21,7 @@ pub mod chiffrage_mgs4;
 pub mod chiffrage_cles;
 #[cfg(all(feature = "chiffrage"))]
 pub mod chiffrage;
+mod error;
 
 // Re-exports
 pub use ed25519_dalek;

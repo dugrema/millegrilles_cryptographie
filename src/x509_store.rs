@@ -12,9 +12,10 @@ use openssl::x509::store::{X509Store, X509StoreBuilder};
 use openssl::x509::verify::X509VerifyFlags;
 use openssl::x509::{X509, X509Ref, X509StoreContext, X509StoreContextRef};
 use serde::{Serialize, Serializer};
+use crate::error::Error;
 use crate::securite::Securite;
 
-use crate::x509::{Error, EnveloppeCertificat, ExtensionsMilleGrille, calculer_idmg_ref};
+use crate::x509::{EnveloppeCertificat, ExtensionsMilleGrille, calculer_idmg_ref};
 
 pub trait ValidateurX509: Send + Sync {
 

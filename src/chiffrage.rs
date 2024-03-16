@@ -2,6 +2,7 @@ use log::info;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use rand;
 use rand::Rng;
+use zeroize::Zeroize;
 
 //pub const MAXLEN_DATA_CHIFFRE: usize = 1024 * 1024 * 3;
 
@@ -32,17 +33,20 @@ impl Into<&str> for FormatChiffrage {
     }
 }
 
-#[derive(Clone, PartialEq)]
-pub struct CleSecrete(pub [u8; 32]);
+#[derive(Clone, PartialEq, Zeroize)]
+#[zeroize(drop)]
+pub struct CleSecrete<const C: usize>(pub [u8; C]);
 
-impl CleSecrete {
+impl<const C: usize> CleSecrete<C> {
     pub fn generer() -> Self {
-        let mut buffer = [0u8; 32];
+        let mut buffer = [0u8; C];
         let mut rnd = rand::thread_rng();
         rnd.fill(&mut buffer);
         CleSecrete (buffer)
     }
 }
+
+pub type CleSecreteMgs4 = CleSecrete<32>;
 
 #[cfg(feature = "alloc")]
 /// Genere un Vec de nb_bytes aleatoires.
@@ -67,7 +71,7 @@ mod ed25519_tests {
 
     #[test_log::test]
     fn test_clesecrete_generer() {
-        let cle_secrete = CleSecrete::generer();
+        let cle_secrete = CleSecreteMgs4::generer();
         info!("Cle secrete generee : {:?}", cle_secrete.0);
         assert_eq!(32, cle_secrete.0.len());
     }

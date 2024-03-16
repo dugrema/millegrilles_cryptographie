@@ -15,6 +15,7 @@ use openssl::pkey::{PKey, Private, Public};
 use openssl::x509::{X509, X509Ref, X509Req, X509ReqRef};
 use x509_parser::parse_x509_certificate;
 use blake2::{Blake2s256, Digest};
+use crate::error::Error;
 
 use crate::hachages::HachageCode;
 use crate::securite::Securite;
@@ -26,19 +27,6 @@ const OID_DOMAINES: &str = "1.2.3.4.2";
 const OID_USERID: &str = "1.2.3.4.3";
 const OID_DELEGATION_GLOBALE: &str = "1.2.3.4.4";
 const OID_DELEGATION_DOMAINES: &str = "1.2.3.4.5";
-
-#[derive(Debug, Clone)]
-pub enum Error {
-    Openssl(ErrorStack),
-    Str(&'static str),
-    String(String),
-}
-
-impl From<ErrorStack> for Error {
-    fn from(value: ErrorStack) -> Self {
-        Error::Openssl(value)
-    }
-}
 
 #[inline]
 pub fn charger_csr(pem: &str) -> Result<X509Req, ErrorStack> {

@@ -514,6 +514,7 @@ dependencies = [
  "sha2",
  "test-log",
  "x509-parser",
+ "zeroize",
 ]
 
 [[package]]

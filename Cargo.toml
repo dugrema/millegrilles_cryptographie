@@ -11,7 +11,7 @@ optional-defaults = ['alloc', 'hex/default', 'multibase/default', 'multihash/def
 # High-level features
 x509 = ['openssl', 'x509-parser', 'optional-defaults']
 x25519 = ['openssl', 'dryoc', 'optional-defaults']
-chiffrage = ['alloc', 'rand', 'x25519']
+chiffrage = ['alloc', 'x509', 'rand', 'x25519', 'zeroize']
 
 [dependencies]
 heapless = { version = "0.8", features = ["serde"] }
@@ -39,6 +39,7 @@ rand = { version = "0.9.0-alpha.0", optional = true }
 dryoc = { version = "0.5.3", optional = true }
 chacha20poly1305 = { version = "0.10", default-features = false }
 # x25519-dalek = { version = "2.0", default-features = false }
+zeroize = { version = "1.7.0", optional = true }
 
 # Signature
 ed25519-dalek = { version = "2.1", default-features = false }
