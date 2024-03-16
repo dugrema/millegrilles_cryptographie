@@ -60,7 +60,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
     }
 
     /// Version std avec un Vec qui supporte alloc. Permet de traiter des messages de grande taille.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     pub fn build_into_alloc<'b>(self, buffer: &'b mut std::vec::Vec<u8>) -> Result<MessageMilleGrillesRef<'b, C>, &'static str> {
         // Calculer pubkey
         let verifying_key = self.signing_key.verifying_key();
@@ -239,7 +239,7 @@ mod messages_structs_tests {
         assert_eq!(estampille.timestamp(), message.estampille.timestamp());
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     #[test_log::test]
     fn test_build_into_alloc() {
         let contenu = "Le contenu a inclure";

@@ -164,7 +164,7 @@ mod hachage_tests {
     use hex;
 
     #[test_log::test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "optional-defaults")]
     fn hacheur_blake2b() {
         let data = b"Test Data";
         let hachage = hacher_bytes(&data[..], HachageCode::Blake2b512);
@@ -228,7 +228,7 @@ mod hachage_tests {
     }
 
     #[test_log::test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "optional-defaults")]
     fn hacheur_sha2_512() {
         let data = b"Test Data6";
         let hachage = hacher_bytes(&data[..], HachageCode::Sha2_512);

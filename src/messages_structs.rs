@@ -501,7 +501,7 @@ mod messages_structs_tests {
         debug!("Parsed id: {}", parsed.id);
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(feature = "optional-defaults")]
     #[test_log::test]
     fn test_buffer_alloc() {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();

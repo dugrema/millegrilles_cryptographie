@@ -14,7 +14,7 @@ pub fn signer_into<'a>(signing_key: &SigningKey, message_id: &MessageId, output_
     from_utf8(output_str).unwrap()
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "optional-defaults")]
 pub fn signer(signing_key: &SigningKey, message_id: &str) -> String {
     let mut buffer = [0u8; 128];
     let mut message_id_bytes = [0u8; 32] as MessageId;
@@ -62,7 +62,7 @@ mod ed25519_tests {
     }
 
     #[test_log::test]
-    #[cfg(feature = "std")]
+    #[cfg(feature = "optional-defaults")]
     fn test_signer_verifier() {
         let data_str = "7497da22a374d7ab092b8a6fa89709739f3fe0d07921a738d376079d4632a102";
         let mut data_bytes = [0u8; 32] as MessageId;
