@@ -12,7 +12,7 @@ pub type ClePubliqueX25519 = [u8; 32];
 pub type CleSecreteX25519 = CleSecrete<32>;
 
 pub struct CleDerivee {
-    pub secret: CleSecrete<32>,
+    pub secret: CleSecreteX25519,
     pub public_peer: ClePubliqueX25519,
 }
 

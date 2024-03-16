@@ -9,6 +9,8 @@ pub enum Error {
     Openssl(ErrorStack),
     #[cfg(feature = "optional-defaults")]
     Multibase(multibase::Error),
+    #[cfg(feature = "optional-defaults")]
+    Multihash(multihash::Error),
     #[cfg(feature = "chiffrage")]
     Chacha20poly1350(aead::Error),
     #[cfg(feature = "dryoc")]
@@ -32,6 +34,12 @@ impl From<aead::Error> for Error {
 impl From<multibase::Error> for Error {
     fn from(value: multibase::Error) -> Self {
         Error::Multibase(value)
+    }
+}
+
+impl From<multihash::Error> for Error {
+    fn from(value: multihash::Error) -> Self {
+        Error::Multihash(value)
     }
 }
 
