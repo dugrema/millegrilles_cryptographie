@@ -7,7 +7,6 @@ use dryoc::constants::{
 };
 use log::debug;
 use multibase::{Base, encode};
-use openssl::pkey::{Id, PKey};
 use crate::chiffrage::{CleSecrete, FormatChiffrage};
 
 use crate::chiffrage_cles::{CleChiffrageStruct, CleChiffrageX25519Impl, CleDechiffrageX25519Impl, FingerprintCleChiffree};
@@ -106,7 +105,7 @@ impl CipherMgs4 {
         })
     }
 
-    fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error> {
+    pub fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error> {
         let mut position_data: usize = 0;
         let mut position_output: usize = 0;
 
@@ -219,7 +218,7 @@ impl DecipherMgs4 {
         Ok(DecipherMgs4 { state, header, buffer: [0u8; CONST_TAILLE_BLOCK_MGS4], position_buffer: 0 })
     }
 
-    fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error> {
+    pub fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error> {
 
         let mut position_data: usize = 0;
         let mut position_output: usize = 0;
@@ -258,7 +257,7 @@ impl DecipherMgs4 {
         Ok(position_output)
     }
 
-    fn finalize(mut self, out: &mut [u8]) -> Result<usize, Error> {
+    pub fn finalize(mut self, out: &mut [u8]) -> Result<usize, Error> {
 
         if self.position_buffer < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
             Err(Error::Str("DecipherMgs4.finalize Erreur block final < 17 bytes"))?
