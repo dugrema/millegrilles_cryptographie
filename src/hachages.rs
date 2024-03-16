@@ -1,7 +1,8 @@
 use blake2::{Blake2s256, Blake2b512, Digest};
-use multibase::Base::Base58Btc;
-use multihash::Multihash;
 use sha2::{Sha256, Sha512};
+#[cfg(feature = "optional-defaults")]
+use multihash::Multihash;
+
 use crate::error::Error;
 
 const SHA2_256: u16 = 0x12;
@@ -55,6 +56,7 @@ pub enum HachageCode {
 //     valeur_hachee
 // }
 
+#[cfg(feature = "alloc")]
 pub trait HachageMultihash {
     fn finalize_mh<B>(self, base: B) -> Result<String, Error>
         where B: Into<Option<multibase::Base>>;
@@ -137,6 +139,7 @@ impl HacheurInterne<64> for HacheurBlake2b512 {
     }
 }
 
+#[cfg(feature = "optional-defaults")]
 impl HachageMultihash for HacheurBlake2b512 {
     fn finalize_mh<B>(self, base: B) -> Result<String, Error>
         where B: Into<Option<multibase::Base>>
