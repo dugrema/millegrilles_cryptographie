@@ -44,16 +44,14 @@ pub fn charger_chaine(pem: &str) -> Result<Vec<X509>, ErrorStack> {
     stack
 }
 
-pub fn calculer_fingerprint(cert: &X509) -> Result<String, ErrorStack> {
+pub fn calculer_fingerprint(cert: &X509) -> Result<String, Error> {
     // refact 2023.5.0 - le fingerprint (pubkey) correspond a la cle publique
     // note : risque de poisoning si cle privee est reutilisee dans plusieurs certificats
-    match cert.public_key() {
-        Ok(inner) => calculer_fingerprint_pk(&inner),
-        Err(e) => Err(e)
-    }
+    let pk = cert.public_key()?;
+    calculer_fingerprint_pk(&pk)
 }
 
-pub fn calculer_fingerprint_pk(pk: &PKey<Public>) -> Result<String, ErrorStack> {
+pub fn calculer_fingerprint_pk(pk: &PKey<Public>) -> Result<String, Error> {
     let cle_publique = match pk.raw_public_key() {
         Ok(inner) => inner,
         Err(e) => Err(e)?
@@ -68,10 +66,7 @@ pub fn calculer_idmg(cert: &X509) -> Result<String, Error> {
 
 pub fn calculer_idmg_ref(cert: &X509Ref) -> Result<String, Error> {
     let fingerprint = {
-        let der = match cert.to_der() {
-            Ok(v) => v,
-            Err(e) => Err(Error::String(format!("calculer_idmg_ref fingerprint error : {:?}", e)))?
-        };
+        let der = cert.to_der()?;
         let mut hasher = Blake2s256::new();
         hasher.update(der);
         hasher.finalize()
@@ -117,16 +112,13 @@ pub struct EnveloppeCertificat {
 
 impl EnveloppeCertificat {
 
-    pub fn fingerprint(&self) -> Result<String, ErrorStack> {
+    pub fn fingerprint(&self) -> Result<String, Error> {
         self.fingerprint_pk()
     }
 
     pub fn pubkey(&self) -> Result<Vec<u8>, Error> {
         let pk: PKey<Public> = self.certificat.public_key().unwrap();
-        match pk.raw_public_key() {
-            Ok(inner) => Ok(inner),
-            Err(e) => Err(Error::String(format!("EnveloppeCertificat::pubkey Erreur {:?}", e)))?
-        }
+        Ok(pk.raw_public_key()?)
     }
 
     pub fn not_valid_before(&self) -> Result<DateTime<Utc>, Error> {
@@ -172,11 +164,7 @@ impl EnveloppeCertificat {
 
         let mut resultat = HashMap::new();
         for entry in subject_name.entries() {
-            // debug!("Entry : {:?}", entry);
-            let cle: &str = match entry.object().nid().long_name() {
-                Ok(inner) => inner,
-                Err(e) => Err(Error::Openssl(e))?
-            };
+            let cle: &str = entry.object().nid().long_name()?;
             let data = entry.data().as_slice().to_vec();
             let valeur = String::from_utf8(data).expect("Erreur chargement IDMG");
             resultat.insert(cle.to_string(), valeur);
@@ -200,10 +188,7 @@ impl EnveloppeCertificat {
         let mut resultat = HashMap::new();
         for entry in subject_name.entries() {
             // debug!("Entry : {:?}", entry);
-            let cle: &str = match entry.object().nid().long_name() {
-                Ok(inner) => inner,
-                Err(e) => Err(Error::Openssl(e))?
-            };
+            let cle: &str = entry.object().nid().long_name()?;
             let data = entry.data().as_slice().to_vec();
             let valeur = String::from_utf8(data).expect("Erreur chargement IDMG");
             resultat.insert(cle.to_string(), valeur);
@@ -226,20 +211,15 @@ impl EnveloppeCertificat {
         }
     }
 
-    pub fn fingerprint_pk(&self) -> Result<String, ErrorStack> {
+    pub fn fingerprint_pk(&self) -> Result<String, Error> {
         let pk = self.certificat.public_key()?;
         calculer_fingerprint_pk(&pk)
     }
 
-    pub fn publickey_bytes(&self) -> Result<String, String> {
-        let pk = match self.certificat.public_key() {
-            Ok(pk) => pk,
-            Err(e) => Err(format!("certificat.public_bytes Erreur public_key() {:?}", e))?
-        };
-        match pk.raw_public_key() {
-            Ok(b) => Ok(multibase::encode(Base::Base64, b)),
-            Err(e) => Err(format!("certificat.public_bytes Erreur raw_private_key() {:?}", e))?
-        }
+    pub fn publickey_bytes(&self) -> Result<String, Error> {
+        let pk = self.certificat.public_key()?;
+        let b = pk.raw_public_key()?;
+        Ok(multibase::encode(Base::Base64, b))
     }
 
     pub fn extensions(&self) -> Result<ExtensionsMilleGrille, String> {
@@ -384,16 +364,17 @@ impl EnveloppePrivee {
         Ok(())
     }
 
-    pub fn fingerprint(&self) -> Result<String, ErrorStack> {
+    pub fn fingerprint(&self) -> Result<String, Error> {
         let pk = self.enveloppe_pub.certificat.public_key()?;
-        calculer_fingerprint_pk(&pk)
+        Ok(calculer_fingerprint_pk(&pk)?)
     }
 
 }
 
 impl Debug for EnveloppePrivee {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("Enveloppe privee {}", self.fingerprint()?).as_str())
+        let fingerprint = self.fingerprint().unwrap_or_else(|e| String::from("N/A"));
+        f.write_str(format!("Enveloppe privee {}", fingerprint).as_str())
     }
 }
 
