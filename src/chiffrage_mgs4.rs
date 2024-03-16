@@ -178,7 +178,7 @@ impl CipherMgs4 {
             cle_secrete,
             cles_chiffrees,
             format: FormatChiffrage::MGS4,
-            nonce: None,
+            nonce: Some(self.header),
             verification: None,
         };
 
@@ -242,7 +242,7 @@ impl DecipherMgs4 {
                 let slice_output = &mut out[position_output..position_output+TAILLE_OUTPUT];
                 let mut output_tag = 0u8;
 
-                let result = crypto_secretstream_xchacha20poly1305_pull(
+                let _result = crypto_secretstream_xchacha20poly1305_pull(
                     &mut self.state, slice_output, &mut output_tag, &self.buffer, None)?;
 
                 if output_tag != CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE {
@@ -272,7 +272,7 @@ impl DecipherMgs4 {
         debug!("Finalize dechiffrage de ciphertext {:?}", ciphertext);
 
         // Dechiffrer
-        let taille_finale = crypto_secretstream_xchacha20poly1305_pull(
+        let _taille_finale = crypto_secretstream_xchacha20poly1305_pull(
             &mut self.state, out, &mut output_tag, ciphertext, None)?;
 
         if output_tag != CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL {

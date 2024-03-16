@@ -102,7 +102,7 @@ pub struct CleChiffrageStruct<const C: usize> {
     pub nonce: Option<String>,
 
     /// Element de verification selon le format de chiffrage.
-    /// Peut etre un hachage (e.g. blake2s) ou un HMAC (e.g. compute tag de chacha20-poly1305).
+    /// Peut etre un hachage (e.g. blake2s) ou un HMAC (e.g. compute tag).
     pub verification: Option<String>,
 }
 
