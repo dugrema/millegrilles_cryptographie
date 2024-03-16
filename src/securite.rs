@@ -19,10 +19,10 @@ impl TryFrom<&str> for Securite {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            L1_PUBLIC => Ok(Securite::L1Public),
-            L2_PRIVE => Ok(Securite::L2Prive),
-            L3_PROTEGE => Ok(Securite::L3Protege),
-            L4_SECURE => Ok(Securite::L4Secure),
+            L1_PUBLIC => Ok(Self::L1Public),
+            L2_PRIVE => Ok(Self::L2Prive),
+            L3_PROTEGE => Ok(Self::L3Protege),
+            L4_SECURE => Ok(Self::L4Secure),
             _ => Err("niveau de securite invalide")?
         }
     }
@@ -31,10 +31,10 @@ impl TryFrom<&str> for Securite {
 impl Into<&str> for Securite {
     fn into(self) -> &'static str {
         match self {
-            Securite::L1Public => L1_PUBLIC,
-            Securite::L2Prive => L2_PRIVE,
-            Securite::L3Protege => L3_PROTEGE,
-            Securite::L4Secure => L4_SECURE
+            Self::L1Public => L1_PUBLIC,
+            Self::L2Prive => L2_PRIVE,
+            Self::L3Protege => L3_PROTEGE,
+            Self::L4Secure => L4_SECURE
         }
     }
 }

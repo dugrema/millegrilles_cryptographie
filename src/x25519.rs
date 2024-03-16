@@ -4,12 +4,10 @@ use log::debug;
 use openssl::derive::Deriver;
 use openssl::error::ErrorStack;
 use openssl::pkey::{Id, PKey, Private, Public};
+use crate::chiffrage::CleSecrete;
 use crate::hachages::{HachageCode, hacher_bytes_into};
 
-#[derive(Clone)]
-pub struct CleSecrete(pub [u8; 32]);
-
-type ClePubliqueX25519 = [u8; 32];
+pub type ClePubliqueX25519 = [u8; 32];
 
 pub struct CleDerivee {
     pub secret: CleSecrete,
