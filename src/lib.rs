@@ -1,4 +1,4 @@
-// #![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate core;
 
@@ -15,10 +15,12 @@ pub mod x509;
 pub mod x509_store;
 #[cfg(all(feature = "openssl", feature = "dryoc", feature = "x25519"))]
 pub mod x25519;
-#[cfg(all(feature = "openssl", feature = "dryoc", feature = "x25519"))]
+#[cfg(all(feature = "chiffrage"))]
 pub mod chiffrage_mgs4;
-#[cfg(all(feature = "openssl", feature = "dryoc", feature = "x25519"))]
+#[cfg(all(feature = "chiffrage"))]
 pub mod chiffrage_cles;
-mod chiffrage;
+#[cfg(all(feature = "chiffrage"))]
+pub mod chiffrage;
 
+// Re-exports
 pub use ed25519_dalek;
