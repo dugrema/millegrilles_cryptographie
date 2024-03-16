@@ -1,9 +1,10 @@
-use openssl::pkey::{PKey, Private};
+use multibase::Base;
+use openssl::pkey::{Id, PKey, Private};
 use serde::{Deserialize, Serialize};
 
 use crate::chiffrage::{CleSecrete, FormatChiffrage};
 use crate::error::Error;
-use crate::x25519::dechiffrer_asymmetrique_ed25519;
+use crate::x25519::{chiffrer_asymmetrique_ed25519, convertir_public_ed25519_to_x25519_openssl, dechiffrer_asymmetrique_ed25519};
 use crate::x509::EnveloppeCertificat;
 
 const X25519_KEY_LEN: usize = 32;
@@ -124,7 +125,18 @@ impl CleChiffrageX25519 for CleChiffrageX25519Impl {
             }
 
             // Convertir en X25519
+            let cle_ed25519_openssl = PKey::public_key_from_raw_bytes(pubkey_ed25519.as_slice(), Id::ED25519)?;
+            let cle_x25519_openssl = convertir_public_ed25519_to_x25519_openssl(&cle_ed25519_openssl)?;
 
+            // Chiffrer la cle secrete
+            let secret_chiffre = chiffrer_asymmetrique_ed25519(&self.cle_secrete.0, &cle_x25519_openssl)?;
+
+            // Encoder en multibase base64
+            let secret_chiffre_string = multibase::encode(Base::Base64, &secret_chiffre);
+
+            // Ajouter au Vec
+            let fingerprint = cle.fingerprint()?;
+            self.cles_chiffrees.push(FingerprintCleChiffree {fingerprint, cle_chiffree: secret_chiffre_string} );
         }
         Ok(())
     }

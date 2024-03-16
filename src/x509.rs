@@ -373,7 +373,7 @@ impl EnveloppePrivee {
 
 impl Debug for EnveloppePrivee {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let fingerprint = self.fingerprint().unwrap_or_else(|e| String::from("N/A"));
+        let fingerprint = self.fingerprint().unwrap_or_else(|_| String::from("N/A"));
         f.write_str(format!("Enveloppe privee {}", fingerprint).as_str())
     }
 }

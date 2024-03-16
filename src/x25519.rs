@@ -171,26 +171,27 @@ pub fn dechiffrer_asymmetrique_ed25519(cle_chiffree: &[u8], cle_privee: &PKey<Pr
     Ok(cle_secrete_dechiffree)
 }
 
-fn convertir_public_ed25519_to_x25519_openssl(public_key: &PKey<Public>) -> Result<PKey<Public>, Error> {
+pub fn convertir_public_ed25519_to_x25519_openssl(public_key: &PKey<Public>) -> Result<PKey<Public>, Error> {
     let pk = public_key.raw_public_key()?;
-    convertir_public_ed25519_to_x25519(&pk)
+    let cle_publique_x25519 = convertir_public_ed25519_to_x25519(&pk)?;
+    Ok(PKey::public_key_from_raw_bytes(&cle_publique_x25519, Id::X25519)?)
 }
 
-fn convertir_public_ed25519_to_x25519(cle_publique_bytes: &[u8]) -> Result<PKey<Public>, Error> {
-    let mut cle_public_ref: crypto_sign_ed25519::PublicKey = [0u8; 32];
+pub fn convertir_public_ed25519_to_x25519(cle_publique_bytes: &[u8]) -> Result<ClePubliqueX25519, Error> {
+    // Copier cle en input pour avoir buffer de taille connue
+    let mut cle_public_ref = crypto_sign_ed25519::PublicKey::default();
     cle_public_ref.clone_from_slice(&cle_publique_bytes[0..32]);
-    let mut cle_publique_x25519: crypto_sign_ed25519::PublicKey = [0u8; 32];
-    if let Err(e) = crypto_sign_ed25519::crypto_sign_ed25519_pk_to_curve25519(
+
+    // Buffer pour cle convertie
+    let mut cle_publique_x25519: crypto_sign_ed25519::PublicKey = ClePubliqueX25519::default();
+
+    // Convertir
+    crypto_sign_ed25519::crypto_sign_ed25519_pk_to_curve25519(
         &mut cle_publique_x25519,
         &cle_public_ref
-    ) {
-        Err(Error::Dryoc(e))?
-    }
+    )?;
 
-    match PKey::public_key_from_raw_bytes(&cle_publique_x25519, Id::X25519) {
-        Ok(inner) => Ok(inner),
-        Err(e) => Err(Error::Openssl(e))
-    }
+    Ok(cle_publique_x25519)
 }
 
 fn convertir_private_ed25519_to_x25519(ca_key: &PKey<Private>) -> Result<PKey<Private>, Error> {
