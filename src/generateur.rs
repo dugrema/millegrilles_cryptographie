@@ -79,13 +79,15 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             kind: self.kind,
             contenu: self.contenu,
             routage: self.routage,
-            // pub pre_migration: Option<FnvIndexMap<&'a str, Value, 10>>,
+            #[cfg(feature = "serde_json")]
+            pre_migration: None,
             origine: self.origine,
             dechiffrage: self.dechiffrage,
             signature: signature.as_str(),
             certificat: self.certificat,
             millegrille: self.millegrille,
-            // pub attachements: Option<FnvIndexMap<&'a str, Value, 32>>,
+            #[cfg(feature = "serde_json")]
+            attachements: None,
             contenu_valide: None,
         };
 
@@ -130,13 +132,15 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             kind: self.kind,
             contenu: self.contenu,
             routage: self.routage,
-            // pub pre_migration: Option<FnvIndexMap<&'a str, Value, 10>>,
+            #[cfg(feature = "serde_json")]
+            pre_migration: None,
             origine: self.origine,
             dechiffrage: self.dechiffrage,
             signature: signature.as_str(),
             certificat: self.certificat,
             millegrille: self.millegrille,
-            // pub attachements: Option<FnvIndexMap<&'a str, Value, 32>>,
+            #[cfg(feature = "serde_json")]
+            attachements: None,
             contenu_valide: None,
         };
 

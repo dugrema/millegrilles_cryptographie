@@ -1,10 +1,12 @@
 use core::str::{from_utf8, FromStr};
+use std::collections::{BTreeMap, HashMap};
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
 use heapless::{Vec, FnvIndexMap, String};
 use log::{debug, error};
+use serde_json::Value;
 use crate::ed25519::{MessageId, verifier};
 use crate::generateur::MessageMilleGrillesBuilder;
 use crate::hachages::{HacheurInterne, HacheurBlake2s256};
@@ -32,7 +34,7 @@ pub enum MessageKind {
     CommandeInterMillegrille = 8,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DechiffrageInterMillegrille<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cle_id: Option<&'a str>,
@@ -45,7 +47,44 @@ pub struct DechiffrageInterMillegrille<'a> {
     pub header: Option<&'a str>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+impl<'a> Into<DechiffrageInterMillegrilleOwned> for &DechiffrageInterMillegrille<'a> {
+    fn into(self) -> DechiffrageInterMillegrilleOwned {
+
+        let cles = match self.cles.as_ref() {
+            Some(inner) => {
+                let mut cles = BTreeMap::new();
+                for (cle, value) in inner {
+                    cles.insert(cle.to_string(), value.to_string());
+                }
+                Some(cles)
+            },
+            None => None
+        };
+
+        DechiffrageInterMillegrilleOwned {
+            cle_id: match self.cle_id { Some(inner) => Some(inner.to_string()), None => None },
+            cles,
+            format: self.format.to_string(),
+            hachage: match self.hachage { Some(inner) => Some(inner.to_string()), None => None },
+            header: match self.header { Some(inner) => Some(inner.to_string()), None => None },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DechiffrageInterMillegrilleOwned {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cle_id: Option<std::string::String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cles: Option<BTreeMap<std::string::String, std::string::String>>,
+    pub format: std::string::String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hachage: Option<std::string::String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<std::string::String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutageMessage<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<&'a str>,
@@ -66,6 +105,29 @@ impl<'a> RoutageMessage<'a> {
             user_id: None
         }
     }
+}
+
+impl<'a> Into<RoutageMessageOwned> for &RoutageMessage<'a> {
+    fn into(self) -> RoutageMessageOwned {
+        RoutageMessageOwned {
+            action: match self.action { Some(inner) => Some(inner.to_string()), None => None },
+            domaine: match self.domaine { Some(inner) => Some(inner.to_string()), None => None },
+            partition: match self.partition { Some(inner) => Some(inner.to_string()), None => None },
+            user_id: match self.user_id { Some(inner) => Some(inner.to_string()), None => None },
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RoutageMessageOwned {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<std::string::String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domaine: Option<std::string::String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partition: Option<std::string::String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<std::string::String>,
 }
 
 pub type MessageMilleGrillesRefDefault<'a> = MessageMilleGrillesRef<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
@@ -95,9 +157,10 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routage: Option<RoutageMessage<'a>>,
 
-    // /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
-    // #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
-    // pub pre_migration: Option<FnvIndexMap<&'a str, Value, 10>>,
+    /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
+    #[cfg(feature = "serde_json")]
+    #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
+    pub pre_migration: Option<std::collections::HashMap<&'a str, serde_json::Value>>,
 
     /// IDMG d'origine du message
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -119,9 +182,10 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     #[serde(rename = "millegrille", skip_serializing_if = "Option::is_none")]
     pub millegrille: Option<&'a str>,
 
-    // /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    // pub attachements: Option<FnvIndexMap<&'a str, Value, 32>>,
+    /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
+    #[cfg(feature = "serde_json")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachements: Option<std::collections::HashMap<&'a str, serde_json::Value>>,
 
     #[serde(skip)]
     /// Apres verification, conserve : signature valide, hachage valide
@@ -182,6 +246,100 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
 
         Ok(())
     }
+}
+
+#[cfg(feature = "std")]
+impl<'a, const C: usize> std::fmt::Display for MessageMilleGrillesRef<'a, C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("Message:{}", self.id).as_str())
+    }
+}
+
+impl<'a, const C: usize> Into<MessageMilleGrillesOwned> for &MessageMilleGrillesRef<'a, C> {
+    fn into(self) -> MessageMilleGrillesOwned {
+        MessageMilleGrillesOwned {
+            id: self.id.to_string(),
+            pubkey: self.id.to_string(),
+            estampille: self.estampille.clone(),
+            kind: self.kind.clone(),
+            contenu: self.contenu.to_string(),
+            routage: match self.routage.as_ref() { Some(inner) => Some(inner.into()), None => None},
+            pre_migration: None,
+            origine: match self.origine { Some(inner) => Some(inner.to_owned()), None => None },
+            dechiffrage: match self.dechiffrage.as_ref() { Some(inner) => Some(inner.into()), None => None },
+            signature: self.signature.to_string(),
+            certificat: None,
+            millegrille: match self.millegrille { Some(inner) => Some(inner.to_owned()), None => None },
+            attachements: None,
+            evenements: None,
+            contenu_valide: self.contenu_valide.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+#[derive(Clone, Serialize, Deserialize)]
+/// Structure d'un message MilleGrille. Tous les elements sont en reference
+/// a des sources externes (e.g. buffer);
+/// C: nombre maximal de certificats (recommande: 4)
+pub struct MessageMilleGrillesOwned {
+    /// Identificateur unique du message. Correspond au hachage blake2s-256 en hex.
+    pub id: std::string::String,
+
+    /// Cle publique du certificat utilise pour la signature
+    pub pubkey: std::string::String,
+
+    /// Date de creation du message
+    #[serde(with = "epochseconds")]
+    pub estampille: DateTime<Utc>,
+
+    /// Kind du message, correspond a enum MessageKind
+    pub kind: MessageKind,
+
+    /// Contenu du message en format json-string
+    pub contenu: std::string::String,
+
+    /// Information de routage de message (optionnel, depend du kind)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routage: Option<RoutageMessageOwned>,
+
+    /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
+    #[cfg(feature = "serde_json")]
+    #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
+    pub pre_migration: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
+
+    /// IDMG d'origine du message
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origine: Option<std::string::String>,
+
+    /// Information de dechiffrage pour contenu chiffre
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dechiffrage: Option<DechiffrageInterMillegrilleOwned>,
+
+    /// Signature ed25519 encodee en hex
+    #[serde(rename = "sig")]
+    pub signature: std::string::String,
+
+    /// Chaine de certificats en format PEM.
+    #[serde(rename = "certificat", skip_serializing_if = "Option::is_none")]
+    pub certificat: Option<std::vec::Vec<std::string::String>>,
+
+    /// Certificat de millegrille (root).
+    #[serde(rename = "millegrille", skip_serializing_if = "Option::is_none")]
+    pub millegrille: Option<std::string::String>,
+
+    /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
+    #[cfg(feature = "serde_json")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachements: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
+
+    #[cfg(feature = "serde_json")]
+    #[serde(rename = "_evenements", skip_serializing)]
+    pub evenements: Option<HashMap<std::string::String, Value>>,
+
+    #[serde(skip)]
+    /// Apres verification, conserve : signature valide, hachage valide
+    pub contenu_valide: Option<(bool, bool)>,
 }
 
 pub struct HacheurMessage<'a> {
@@ -345,11 +503,20 @@ impl<'a, const C: usize> From<&'a MessageMilleGrillesRef<'a, C>> for HacheurMess
     }
 }
 
+impl<const C: usize> From<std::vec::Vec<u8>> for MessageMilleGrillesBufferAlloc<C> {
+    fn from(value: std::vec::Vec<u8>) -> Self {
+        Self { buffer: value }
+    }
+}
+
+pub type MessageMilleGrillesBufferDefault = MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX>;
+
 #[cfg(feature = "alloc")]
 /// Version du buffer de MessagesMilleGrilles qui support alloc (Vec sur heap)
 /// Preferer cette version si alloc est disponible.
+#[derive(Clone, Debug)]
 pub struct MessageMilleGrillesBufferAlloc<const C: usize> {
-    /// Buffer dans la stack
+    /// Buffer dans la heap
     pub buffer: std::vec::Vec<u8>,
 }
 
@@ -413,7 +580,7 @@ impl<const B: usize, const C: usize> MessageMilleGrillesBufferHeapless<B, C> {
 
 
 /// Convertisseur de date i64 en epoch (secondes)
-mod epochseconds {
+pub mod epochseconds {
 
     use chrono::{DateTime, Utc};
     use serde::{self, Deserialize, Serializer, Deserializer};
@@ -431,6 +598,42 @@ mod epochseconds {
         let s = i64::deserialize(deserializer)?;
         let dt = DateTime::from_timestamp(s, 0).unwrap();
         Ok(dt)
+    }
+}
+
+pub mod optionepochseconds {
+
+    use chrono::{DateTime, Utc};
+    use serde::{self, Deserialize, Serializer, Deserializer};
+
+    pub fn serialize<S>(date: Option<&DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        match date {
+            Some(inner) => {
+                let s = inner.timestamp();
+                serializer.serialize_i64(s)
+            },
+            None => {
+                serializer.serialize_none()
+            }
+        }
+    }
+
+    pub fn deserialize<'de, D>( deserializer: D ) -> Result<Option<DateTime<Utc>>, D::Error>
+        where D: Deserializer<'de>,
+    {
+        let s = Option::deserialize(deserializer)?;
+        match s {
+            Some(inner) =>  {
+                let dt = DateTime::from_timestamp(inner, 0).unwrap();
+                Ok(Some(dt))
+            },
+            None => Ok(None)
+        }
+        // let s = i64::deserialize(deserializer)?;
+        // let dt = DateTime::from_timestamp(s, 0).unwrap();
+        // Ok(dt)
     }
 }
 

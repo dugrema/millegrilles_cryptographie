@@ -25,3 +25,4 @@ pub mod chiffrage;
 
 // Re-exports
 pub use ed25519_dalek;
+pub use heapless;
