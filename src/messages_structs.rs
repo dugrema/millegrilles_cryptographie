@@ -214,6 +214,13 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
     /// Lance une Err si invalide.
     /// Note : ne valide pas la correspondance au certificat/IDMG ni les dates.
     pub fn verifier_signature(&mut self) -> Result<(), &'static str> {
+        if let Some(inner) = self.contenu_valide {
+            if inner == (true, true) {
+                return Ok(())
+            }
+            Err("verifier_signature Invalide")?
+        }
+
         // Verifier le hachage du message
         let hacheur = HacheurMessage::from(&*self);
         let hachage_string = hacheur.hacher()?;
@@ -255,92 +262,92 @@ impl<'a, const C: usize> std::fmt::Display for MessageMilleGrillesRef<'a, C> {
     }
 }
 
-impl<'a, const C: usize> Into<MessageMilleGrillesOwned> for &MessageMilleGrillesRef<'a, C> {
-    fn into(self) -> MessageMilleGrillesOwned {
-        MessageMilleGrillesOwned {
-            id: self.id.to_string(),
-            pubkey: self.id.to_string(),
-            estampille: self.estampille.clone(),
-            kind: self.kind.clone(),
-            contenu: self.contenu.to_string(),
-            routage: match self.routage.as_ref() { Some(inner) => Some(inner.into()), None => None},
-            pre_migration: None,
-            origine: match self.origine { Some(inner) => Some(inner.to_owned()), None => None },
-            dechiffrage: match self.dechiffrage.as_ref() { Some(inner) => Some(inner.into()), None => None },
-            signature: self.signature.to_string(),
-            certificat: None,
-            millegrille: match self.millegrille { Some(inner) => Some(inner.to_owned()), None => None },
-            attachements: None,
-            evenements: None,
-            contenu_valide: self.contenu_valide.clone(),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-#[derive(Clone, Serialize, Deserialize)]
-/// Structure d'un message MilleGrille. Tous les elements sont en reference
-/// a des sources externes (e.g. buffer);
-/// C: nombre maximal de certificats (recommande: 4)
-pub struct MessageMilleGrillesOwned {
-    /// Identificateur unique du message. Correspond au hachage blake2s-256 en hex.
-    pub id: std::string::String,
-
-    /// Cle publique du certificat utilise pour la signature
-    pub pubkey: std::string::String,
-
-    /// Date de creation du message
-    #[serde(with = "epochseconds")]
-    pub estampille: DateTime<Utc>,
-
-    /// Kind du message, correspond a enum MessageKind
-    pub kind: MessageKind,
-
-    /// Contenu du message en format json-string
-    pub contenu: std::string::String,
-
-    /// Information de routage de message (optionnel, depend du kind)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub routage: Option<RoutageMessageOwned>,
-
-    /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
-    #[cfg(feature = "serde_json")]
-    #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
-    pub pre_migration: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
-
-    /// IDMG d'origine du message
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub origine: Option<std::string::String>,
-
-    /// Information de dechiffrage pour contenu chiffre
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dechiffrage: Option<DechiffrageInterMillegrilleOwned>,
-
-    /// Signature ed25519 encodee en hex
-    #[serde(rename = "sig")]
-    pub signature: std::string::String,
-
-    /// Chaine de certificats en format PEM.
-    #[serde(rename = "certificat", skip_serializing_if = "Option::is_none")]
-    pub certificat: Option<std::vec::Vec<std::string::String>>,
-
-    /// Certificat de millegrille (root).
-    #[serde(rename = "millegrille", skip_serializing_if = "Option::is_none")]
-    pub millegrille: Option<std::string::String>,
-
-    /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
-    #[cfg(feature = "serde_json")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachements: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
-
-    #[cfg(feature = "serde_json")]
-    #[serde(rename = "_evenements", skip_serializing)]
-    pub evenements: Option<HashMap<std::string::String, Value>>,
-
-    #[serde(skip)]
-    /// Apres verification, conserve : signature valide, hachage valide
-    pub contenu_valide: Option<(bool, bool)>,
-}
+// impl<'a, const C: usize> Into<MessageMilleGrillesOwned> for &MessageMilleGrillesRef<'a, C> {
+//     fn into(self) -> MessageMilleGrillesOwned {
+//         MessageMilleGrillesOwned {
+//             id: self.id.to_string(),
+//             pubkey: self.id.to_string(),
+//             estampille: self.estampille.clone(),
+//             kind: self.kind.clone(),
+//             contenu: self.contenu.to_string(),
+//             routage: match self.routage.as_ref() { Some(inner) => Some(inner.into()), None => None},
+//             pre_migration: None,
+//             origine: match self.origine { Some(inner) => Some(inner.to_owned()), None => None },
+//             dechiffrage: match self.dechiffrage.as_ref() { Some(inner) => Some(inner.into()), None => None },
+//             signature: self.signature.to_string(),
+//             certificat: None,
+//             millegrille: match self.millegrille { Some(inner) => Some(inner.to_owned()), None => None },
+//             attachements: None,
+//             evenements: None,
+//             contenu_valide: self.contenu_valide.clone(),
+//         }
+//     }
+// }
+//
+// #[cfg(feature = "std")]
+// #[derive(Clone, Serialize, Deserialize)]
+// /// Structure d'un message MilleGrille. Tous les elements sont en reference
+// /// a des sources externes (e.g. buffer);
+// /// C: nombre maximal de certificats (recommande: 4)
+// pub struct MessageMilleGrillesOwned {
+//     /// Identificateur unique du message. Correspond au hachage blake2s-256 en hex.
+//     pub id: std::string::String,
+//
+//     /// Cle publique du certificat utilise pour la signature
+//     pub pubkey: std::string::String,
+//
+//     /// Date de creation du message
+//     #[serde(with = "epochseconds")]
+//     pub estampille: DateTime<Utc>,
+//
+//     /// Kind du message, correspond a enum MessageKind
+//     pub kind: MessageKind,
+//
+//     /// Contenu du message en format json-string
+//     pub contenu: std::string::String,
+//
+//     /// Information de routage de message (optionnel, depend du kind)
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub routage: Option<RoutageMessageOwned>,
+//
+//     /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
+//     #[cfg(feature = "serde_json")]
+//     #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
+//     pub pre_migration: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
+//
+//     /// IDMG d'origine du message
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub origine: Option<std::string::String>,
+//
+//     /// Information de dechiffrage pour contenu chiffre
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub dechiffrage: Option<DechiffrageInterMillegrilleOwned>,
+//
+//     /// Signature ed25519 encodee en hex
+//     #[serde(rename = "sig")]
+//     pub signature: std::string::String,
+//
+//     /// Chaine de certificats en format PEM.
+//     #[serde(rename = "certificat", skip_serializing_if = "Option::is_none")]
+//     pub certificat: Option<std::vec::Vec<std::string::String>>,
+//
+//     /// Certificat de millegrille (root).
+//     #[serde(rename = "millegrille", skip_serializing_if = "Option::is_none")]
+//     pub millegrille: Option<std::string::String>,
+//
+//     /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
+//     #[cfg(feature = "serde_json")]
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub attachements: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
+//
+//     #[cfg(feature = "serde_json")]
+//     #[serde(rename = "_evenements", skip_serializing)]
+//     pub evenements: Option<HashMap<std::string::String, Value>>,
+//
+//     #[serde(skip)]
+//     /// Apres verification, conserve : signature valide, hachage valide
+//     pub contenu_valide: Option<(bool, bool)>,
+// }
 
 pub struct HacheurMessage<'a> {
     hacheur: HacheurBlake2s256,
@@ -606,7 +613,7 @@ pub mod optionepochseconds {
     use chrono::{DateTime, Utc};
     use serde::{self, Deserialize, Serializer, Deserializer};
 
-    pub fn serialize<S>(date: Option<&DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(date: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer
     {
         match date {
