@@ -238,7 +238,7 @@ mod messages_structs_tests {
         let mut buffer: Vec<u8, CONST_BUFFER_MESSAGE_MIN> = Vec::new();
         let message = generateur.build_into(&mut buffer).unwrap();
 
-        assert_eq!("6ac34b127bc0996f0ab09f3d6e91c14d65a2930689b3204eb9926a4ad4ee9078", message.id);
+        assert_eq!("305d8a90809399e68de9244bbb82d4589571be4b6566eb7ef06fde3fdb0fa418", message.id);
         assert_eq!("7bc3079518ed11da0336085bf6962920ff87fb3c4d630a9b58cb6153674f5dd6", message.pubkey);
         assert_eq!(estampille.timestamp(), message.estampille.timestamp());
     }
@@ -262,7 +262,7 @@ mod messages_structs_tests {
         let mut buffer: std::vec::Vec<u8> = std::vec::Vec::new();
         {
             let message_ref = generateur.build_into_alloc(&mut buffer).unwrap();
-            assert_eq!("6ac34b127bc0996f0ab09f3d6e91c14d65a2930689b3204eb9926a4ad4ee9078", message_ref.id);
+            assert_eq!("305d8a90809399e68de9244bbb82d4589571be4b6566eb7ef06fde3fdb0fa418", message_ref.id);
             assert_eq!("7bc3079518ed11da0336085bf6962920ff87fb3c4d630a9b58cb6153674f5dd6", message_ref.pubkey);
             assert_eq!(estampille.timestamp(), message_ref.estampille.timestamp());
         }

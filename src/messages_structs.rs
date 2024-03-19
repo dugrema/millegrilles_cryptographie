@@ -226,6 +226,7 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         let hachage_string = hacheur.hacher()?;
         if self.id != hachage_string.as_str() {
             self.contenu_valide = Some((false, false));
+            error!("verifier_signature hachage invalide : id: {}, calcule: {}", self.id, hachage_string);
             Err("verifier_signature hachage invalide")?
         }
 
@@ -261,93 +262,6 @@ impl<'a, const C: usize> std::fmt::Display for MessageMilleGrillesRef<'a, C> {
         f.write_str(format!("Message:{}", self.id).as_str())
     }
 }
-
-// impl<'a, const C: usize> Into<MessageMilleGrillesOwned> for &MessageMilleGrillesRef<'a, C> {
-//     fn into(self) -> MessageMilleGrillesOwned {
-//         MessageMilleGrillesOwned {
-//             id: self.id.to_string(),
-//             pubkey: self.id.to_string(),
-//             estampille: self.estampille.clone(),
-//             kind: self.kind.clone(),
-//             contenu: self.contenu.to_string(),
-//             routage: match self.routage.as_ref() { Some(inner) => Some(inner.into()), None => None},
-//             pre_migration: None,
-//             origine: match self.origine { Some(inner) => Some(inner.to_owned()), None => None },
-//             dechiffrage: match self.dechiffrage.as_ref() { Some(inner) => Some(inner.into()), None => None },
-//             signature: self.signature.to_string(),
-//             certificat: None,
-//             millegrille: match self.millegrille { Some(inner) => Some(inner.to_owned()), None => None },
-//             attachements: None,
-//             evenements: None,
-//             contenu_valide: self.contenu_valide.clone(),
-//         }
-//     }
-// }
-//
-// #[cfg(feature = "std")]
-// #[derive(Clone, Serialize, Deserialize)]
-// /// Structure d'un message MilleGrille. Tous les elements sont en reference
-// /// a des sources externes (e.g. buffer);
-// /// C: nombre maximal de certificats (recommande: 4)
-// pub struct MessageMilleGrillesOwned {
-//     /// Identificateur unique du message. Correspond au hachage blake2s-256 en hex.
-//     pub id: std::string::String,
-//
-//     /// Cle publique du certificat utilise pour la signature
-//     pub pubkey: std::string::String,
-//
-//     /// Date de creation du message
-//     #[serde(with = "epochseconds")]
-//     pub estampille: DateTime<Utc>,
-//
-//     /// Kind du message, correspond a enum MessageKind
-//     pub kind: MessageKind,
-//
-//     /// Contenu du message en format json-string
-//     pub contenu: std::string::String,
-//
-//     /// Information de routage de message (optionnel, depend du kind)
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub routage: Option<RoutageMessageOwned>,
-//
-//     /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
-//     #[cfg(feature = "serde_json")]
-//     #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
-//     pub pre_migration: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
-//
-//     /// IDMG d'origine du message
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub origine: Option<std::string::String>,
-//
-//     /// Information de dechiffrage pour contenu chiffre
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub dechiffrage: Option<DechiffrageInterMillegrilleOwned>,
-//
-//     /// Signature ed25519 encodee en hex
-//     #[serde(rename = "sig")]
-//     pub signature: std::string::String,
-//
-//     /// Chaine de certificats en format PEM.
-//     #[serde(rename = "certificat", skip_serializing_if = "Option::is_none")]
-//     pub certificat: Option<std::vec::Vec<std::string::String>>,
-//
-//     /// Certificat de millegrille (root).
-//     #[serde(rename = "millegrille", skip_serializing_if = "Option::is_none")]
-//     pub millegrille: Option<std::string::String>,
-//
-//     /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
-//     #[cfg(feature = "serde_json")]
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub attachements: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
-//
-//     #[cfg(feature = "serde_json")]
-//     #[serde(rename = "_evenements", skip_serializing)]
-//     pub evenements: Option<HashMap<std::string::String, Value>>,
-//
-//     #[serde(skip)]
-//     /// Apres verification, conserve : signature valide, hachage valide
-//     pub contenu_valide: Option<(bool, bool)>,
-// }
 
 pub struct HacheurMessage<'a> {
     hacheur: HacheurBlake2s256,
@@ -446,7 +360,7 @@ impl<'a> HacheurMessage<'a> {
                 // [pubkey, estampille, kind, contenu]
                 // Deja fait, rien a ajouter.
             },
-            MessageKind::Requete | MessageKind::Commande => {} | MessageKind::Transaction => {} | MessageKind::Evenement => {
+            MessageKind::Requete | MessageKind::Commande | MessageKind::Transaction | MessageKind::Evenement => {
                 // [pubkey, estampille, kind, contenu, routage]
 
                 if self.routage.is_none() {
@@ -648,6 +562,7 @@ pub mod optionepochseconds {
 mod messages_structs_tests {
     use super::*;
     use log::info;
+    use serde_json::json;
 
     const MESSAGE_1: &str = r#"{
       "id": "d49a375c980f1e70cdea697664610d70048899d1428909fdc29bd29cfc9dd1ca",
@@ -663,6 +578,23 @@ mod messages_structs_tests {
       "certificat": [
         "-----BEGIN CERTIFICATE-----\nMIIClDCCAkagAwIBAgIUQuFP9EOrsQuFkWnXEH8UQNZ1EN4wBQYDK2VwMHIxLTAr\nBgNVBAMTJGY4NjFhYWZkLTUyOTctNDA2Zi04NjE3LWY3Yjg4MDlkZDQ0ODFBMD8G\nA1UEChM4emVZbmNScUVxWjZlVEVtVVo4d2hKRnVIRzc5NmVTdkNUV0U0TTQzMml6\nWHJwMjJiQXR3R203SmYwHhcNMjQwMjIwMTE0NjUzWhcNMjQwMzIyMTE0NzEzWjCB\ngTEtMCsGA1UEAwwkZjg2MWFhZmQtNTI5Ny00MDZmLTg2MTctZjdiODgwOWRkNDQ4\nMQ0wCwYDVQQLDARjb3JlMUEwPwYDVQQKDDh6ZVluY1JxRXFaNmVURW1VWjh3aEpG\ndUhHNzk2ZVN2Q1RXRTRNNDMyaXpYcnAyMmJBdHdHbTdKZjAqMAUGAytlcAMhANHZ\nwhRt4OWZcSSUidlxR4BQ1VvJE93uugvzxg3Vss0xo4HdMIHaMCsGBCoDBAAEIzQu\nc2VjdXJlLDMucHJvdGVnZSwyLnByaXZlLDEucHVibGljMAwGBCoDBAEEBGNvcmUw\nTAYEKgMEAgREQ29yZUJhY2t1cCxDb3JlQ2F0YWxvZ3VlcyxDb3JlTWFpdHJlRGVz\nQ29tcHRlcyxDb3JlUGtpLENvcmVUb3BvbG9naWUwDwYDVR0RBAgwBoIEY29yZTAf\nBgNVHSMEGDAWgBRQUbOqbsQcXmnk3+moqmk1PXOGKjAdBgNVHQ4EFgQU4+j+8rBR\nK+WeiFzo6EIR+t0C7o8wBQYDK2VwA0EAab2vFykbUk1cWugRd10rGiTKp/PKZdG5\nX+Y+lrHe8AHcrpGGtUV8mwwcDsRbw2wtRq2ENceNlQAcwblEkxLvCA==\n-----END CERTIFICATE-----\n",
         "-----BEGIN CERTIFICATE-----\nMIIBozCCAVWgAwIBAgIKAnY5ZhNJUlVzaTAFBgMrZXAwFjEUMBIGA1UEAxMLTWls\nbGVHcmlsbGUwHhcNMjQwMTMwMTM1NDU3WhcNMjUwODEwMTM1NDU3WjByMS0wKwYD\nVQQDEyRmODYxYWFmZC01Mjk3LTQwNmYtODYxNy1mN2I4ODA5ZGQ0NDgxQTA/BgNV\nBAoTOHplWW5jUnFFcVo2ZVRFbVVaOHdoSkZ1SEc3OTZlU3ZDVFdFNE00MzJpelhy\ncDIyYkF0d0dtN0pmMCowBQYDK2VwAyEAPUMU7tlz3HCEB+VzG8NVFQ/nFKjIOZmV\negt+ub3/7SajYzBhMBIGA1UdEwEB/wQIMAYBAf8CAQAwCwYDVR0PBAQDAgEGMB0G\nA1UdDgQWBBRQUbOqbsQcXmnk3+moqmk1PXOGKjAfBgNVHSMEGDAWgBTTiP/MFw4D\nDwXqQ/J2LLYPRUkkETAFBgMrZXADQQB6S4tids+r9e5d+mwpdkrAE2k3+8H0x65z\nWD5eP7A2XeEr0LbxRPNyaO+Q8fvnjjCKasn97MTPSCXnU/4JbWYK\n-----END CERTIFICATE-----\n"
+      ]
+    }"#;
+
+    const MESSAGE_2: &str = r#"{
+      "pubkey": "c77a68af482e6b93eb9214acff8ba8fe120e9907fc4f71833f0e0e44f28633f7",
+      "estampille": 1710873229,
+      "kind": 1,
+      "contenu": "{}",
+      "routage": {
+        "action": "getConsignationFichiers",
+        "domaine": "CoreTopologie"
+      },
+      "id": "56436984ac971a3b08013f2f24da832d345d75c446cef09db1384905cba671ba",
+      "sig": "1afa459ca94bc47a218fa5543c5648d8fd42fbec354177adff510919fec94ed25b2ed58a35125b146f631397f257a312de5113c1cb9e5153ddff28f4b722eb02",
+      "certificat": [
+        "-----BEGIN CERTIFICATE-----\nMIICNTCCAeegAwIBAgIUDjXBdYYRZKopGYoEytpfIHPl0J0wBQYDK2VwMHIxLTAr\nBgNVBAMTJDU5ZWZkZDY4LTI1MWEtNGFiYS1hZTJlLWQwY2ZlMjM0M2YzNzFBMD8G\nA1UEChM4emVZbmNScUVxWjZlVEVtVVo4d2hKRnVIRzc5NmVTdkNUV0U0TTQzMml6\nWHJwMjJiQXR3R203SmYwHhcNMjQwMzE2MjIwMzA4WhcNMjQwNDE2MjIwMzI4WjCB\ngjEtMCsGA1UEAwwkNTllZmRkNjgtMjUxYS00YWJhLWFlMmUtZDBjZmUyMzQzZjM3\nMQ4wDAYDVQQLDAVtZWRpYTFBMD8GA1UECgw4emVZbmNScUVxWjZlVEVtVVo4d2hK\nRnVIRzc5NmVTdkNUV0U0TTQzMml6WHJwMjJiQXR3R203SmYwKjAFBgMrZXADIQDH\nemivSC5rk+uSFKz/i6j+Eg6ZB/xPcYM/Dg5E8oYz96N+MHwwKwYEKgMEAAQjNC5z\nZWN1cmUsMy5wcm90ZWdlLDIucHJpdmUsMS5wdWJsaWMwDQYEKgMEAQQFbWVkaWEw\nHwYDVR0jBBgwFoAUBi9eRwN/mAOj1iQmIW+U5NRb7NcwHQYDVR0OBBYEFMvYSbbV\ngmfeFwBv0snnKYq2R84AMAUGAytlcANBABYVN+crAcKhmQK1Bhi3GsyfWB8cxBvo\nj7jPDtTlZ7odEq6EJHNjewVIDzF5fxhAFEuJr6ToB5qJcKSh+asT6g4=\n-----END CERTIFICATE-----",
+        "-----BEGIN CERTIFICATE-----\r\nMIIBozCCAVWgAwIBAgIKEwJHiRE3l0cjmDAFBgMrZXAwFjEUMBIGA1UEAxMLTWls\r\nbGVHcmlsbGUwHhcNMjQwMzE2MjE1NzI4WhcNMjUwOTI1MjE1NzI4WjByMS0wKwYD\r\nVQQDEyQ1OWVmZGQ2OC0yNTFhLTRhYmEtYWUyZS1kMGNmZTIzNDNmMzcxQTA/BgNV\r\nBAoTOHplWW5jUnFFcVo2ZVRFbVVaOHdoSkZ1SEc3OTZlU3ZDVFdFNE00MzJpelhy\r\ncDIyYkF0d0dtN0pmMCowBQYDK2VwAyEAI2iQQOBhz2fzhxHgFAU2MJpB7llfsDwu\r\nvGIybrbbqGCjYzBhMBIGA1UdEwEB/wQIMAYBAf8CAQAwCwYDVR0PBAQDAgEGMB0G\r\nA1UdDgQWBBQGL15HA3+YA6PWJCYhb5Tk1Fvs1zAfBgNVHSMEGDAWgBTTiP/MFw4D\r\nDwXqQ/J2LLYPRUkkETAFBgMrZXADQQD3Fh4DqpbZldMW3RUXfl5akQ0597g31ZW2\r\nnBFfY+4Xmwn1AJBJ41LPpV8shhqp7LCfdMZp4SC1+QkgLYQRXJUF\n-----END CERTIFICATE-----"
       ]
     }"#;
 
@@ -717,8 +649,40 @@ mod messages_structs_tests {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
         let mut parsed = buffer.parse().unwrap();
+        debug!("Contenu : {}", parsed.contenu);
+        parsed.verifier_signature().unwrap();
+        debug!("Parsed id: {}", parsed.id);
+    }
+
+    #[cfg(feature = "optional-defaults")]
+    #[test_log::test]
+    fn test_message_2() {
+        let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
+        buffer.buffer.extend(MESSAGE_2.as_bytes());
+        let mut parsed = buffer.parse().unwrap();
+
+        let value_hachage = json!([
+            &parsed.pubkey,
+            parsed.estampille.timestamp(),
+            parsed.kind.clone() as isize,
+            parsed.contenu,
+            &parsed.routage,
+        ]);
+
+        // Comparer avec ancienne methode (serde)
+        let vec_hachage = serde_json::to_string(&value_hachage).unwrap();
+        debug!("String hachage : {}", vec_hachage);
+        let mut hacheur = HacheurBlake2s256::new();
+        hacheur.update(vec_hachage.as_bytes());
+        let hachage = hacheur.finalize();
+        let hachage = hex::encode(hachage);
+        debug!("Hachage calcule avec serde : {}", hachage);
+
+        debug!("Contenu : {}", parsed.contenu);
         parsed.verifier_signature().unwrap();
         debug!("Parsed id: {}", parsed.id);
     }
 
 }
+
+
