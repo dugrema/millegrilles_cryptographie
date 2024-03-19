@@ -1,5 +1,5 @@
 use core::str::{from_utf8, FromStr};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
@@ -7,8 +7,8 @@ use serde_repr::{Serialize_repr, Deserialize_repr};
 use heapless::{Vec, FnvIndexMap, String};
 use log::{debug, error};
 use serde_json::Value;
-use crate::ed25519::{MessageId, verifier};
-use crate::generateur::MessageMilleGrillesBuilder;
+use crate::ed25519::{MessageId, signer_into, verifier};
+use crate::error::Error;
 use crate::hachages::{HacheurInterne, HacheurBlake2s256};
 
 pub const CONST_NOMBRE_CERTIFICATS_MAX: usize = 4;
@@ -151,7 +151,9 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     pub kind: MessageKind,
 
     /// Contenu du message en format json-string
-    pub contenu: &'a str,
+    /// Noter que la deserialization est incomplete, il faut retirer les escape chars
+    /// avant de faire un nouveau parsing avec serde.
+    contenu: &'a str,
 
     /// Information de routage de message (optionnel, depend du kind)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -191,6 +193,101 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     /// Apres verification, conserve : signature valide, hachage valide
     pub contenu_valide: Option<(bool, bool)>,
 }
+
+impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
+
+    /// Parse le contenu et retourne un buffer qui peut servir a deserializer avec serde
+    pub fn contenu(&self) -> Result<MessageMilleGrilleBufferContenu, Error> {
+        let contenu_escaped: Result<std::string::String, std::string::String> = (JsonEscapeIter { s: self.contenu.chars() }).collect();
+        let contenu_vec =  std::vec::Vec::from(contenu_escaped?.as_bytes());
+        Ok(MessageMilleGrilleBufferContenu { buffer: contenu_vec })
+    }
+
+}
+
+pub struct MessageMilleGrilleBufferContenu {
+    buffer: std::vec::Vec<u8>,
+}
+
+impl<'a> MessageMilleGrilleBufferContenu {
+
+    pub fn deserialize<D>(&'a self) -> Result<D, Error>
+        where D: Deserialize<'a>
+    {
+        Ok(serde_json::from_slice(self.buffer.as_slice())?)
+    }
+
+}
+
+struct JsonEscapeIter<'a> {
+    s: std::str::Chars<'a>,
+}
+
+impl<'a> Iterator for JsonEscapeIter<'a> {
+    type Item = Result<char, std::string::String>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.s.next().map(|c| match c {
+            '\\' => {
+                match self.s.next() {
+                    None => Err(std::string::String::from("Char escape a la fin de la str")),
+                    Some('n') => Ok('n'),
+                    Some('r') => Ok('r'),
+                    Some('b') => Ok('b'),
+                    Some('f') => Ok('f'),
+                    Some('t') => Ok('t'),
+                    Some('u') => {
+                        todo!("Unicode");
+                    },
+                    Some('\\') => Ok('\\'),
+                    Some('/') => Ok('/'),
+                    Some('"') => Ok('"'),
+                    _ => Err(std::string::String::from("Char escape invalide")),
+                }
+            },
+            c => Ok(c),
+        })
+    }
+}
+
+// struct JsonEscapeIterAsRead<I>
+//     where
+//         I: Iterator,
+// {
+//     iter: I,
+//     cursor: Option<Cursor<I::Item>>,
+// }
+
+// impl<I> JsonEscapeIterAsRead<I>
+//     where
+//         I: Iterator,
+// {
+//     pub fn new<T>(iter: T) -> Self
+//         where
+//             T: IntoIterator<IntoIter = I, Item = I::Item>,
+//     {
+//         let mut iter = iter.into_iter();
+//         let cursor = iter.next().map(Cursor::new);
+//         JsonEscapeIterAsRead { iter, cursor }
+//     }
+// }
+//
+// impl<I> Read for JsonEscapeIterAsRead<I>
+//     where
+//         I: Iterator,
+//         Cursor<I::Item>: Read,
+// {
+//     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+//         while let Some(ref mut cursor) = self.cursor {
+//             let read = cursor.read(buf)?;
+//             if read > 0 {
+//                 return Ok(read);
+//             }
+//             self.cursor = self.iter.next().map(Cursor::new);
+//         }
+//         Ok(0)
+//     }
+// }
 
 impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
 
@@ -458,6 +555,7 @@ impl<const C: usize> MessageMilleGrillesBufferAlloc<C> {
                 Err("MessageMilleGrilles::parse:E1")?
             }
         };
+        debug!("Parse message : {}", message_str);
         match MessageMilleGrillesRef::parse(message_str) {
             Ok(inner) => Ok(inner),
             Err(()) => Err("MessageMilleGrilles::parse:E2")
@@ -558,6 +656,181 @@ pub mod optionepochseconds {
     }
 }
 
+pub type MessageMilleGrillesBuilderDefault<'a> = MessageMilleGrillesBuilder<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
+
+pub struct MessageMilleGrillesBuilder<'a, const C: usize> {
+    estampille: DateTime<Utc>,
+    kind: MessageKind,
+    contenu: &'a str,
+    routage: Option<RoutageMessage<'a>>,
+    origine: Option<&'a str>,
+    dechiffrage: Option<DechiffrageInterMillegrille<'a>>,
+    certificat: Option<Vec<&'a str, C>>,
+    millegrille: Option<&'a str>,
+    signing_key: &'a SigningKey,
+}
+
+impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
+
+    pub fn new(kind: MessageKind, contenu: &'a str, estampille: DateTime<Utc>, signing_key: &'a SigningKey) -> Self {
+        Self {estampille, kind, contenu, routage: None, origine: None, dechiffrage: None, certificat: None, millegrille: None, signing_key}
+    }
+
+    pub fn routage(mut self, routage: RoutageMessage<'a>) -> Self {
+        self.routage = Some(routage);
+        self
+    }
+
+    pub fn certificat(mut self, certificat: Vec<&'a str, C>) -> Self {
+        self.certificat = Some(certificat);
+        self
+    }
+
+    pub fn origine(mut self, origine: &'a str) -> Self {
+        self.origine = Some(origine);
+        self
+    }
+
+    pub fn dechiffrage(mut self, dechiffrage: DechiffrageInterMillegrille<'a>) -> Self {
+        self.dechiffrage = Some(dechiffrage);
+        self
+    }
+
+    pub fn millegrille(mut self, millegrille: &'a str) -> Self {
+        self.millegrille = Some(millegrille);
+        self
+    }
+
+    /// Version std avec un Vec qui supporte alloc. Permet de traiter des messages de grande taille.
+    #[cfg(feature = "alloc")]
+    pub fn build_into_alloc<'b>(self, buffer: &'b mut std::vec::Vec<u8>) -> Result<MessageMilleGrillesRef<'b, C>, &'static str> {
+        // Calculer pubkey
+        let verifying_key = self.signing_key.verifying_key();
+        let pubkey_bytes = verifying_key.as_bytes();
+        let mut buf_pubkey_str = [0u8; 64];
+        hex::encode_to_slice(pubkey_bytes, &mut buf_pubkey_str).unwrap();
+        let pubkey_str = from_utf8(&buf_pubkey_str).unwrap();
+
+        let message_id = self.generer_id(pubkey_str)?;
+        let signature = self.signer(message_id.as_str())?;
+
+        let message_ref: MessageMilleGrillesRef<C> = MessageMilleGrillesRef {
+            id: message_id.as_str(),
+            pubkey: pubkey_str,
+            estampille: self.estampille,
+            kind: self.kind,
+            contenu: self.contenu,
+            routage: self.routage,
+            #[cfg(feature = "serde_json")]
+            pre_migration: None,
+            origine: self.origine,
+            dechiffrage: self.dechiffrage,
+            signature: signature.as_str(),
+            certificat: self.certificat,
+            millegrille: self.millegrille,
+            #[cfg(feature = "serde_json")]
+            attachements: None,
+            contenu_valide: None,
+        };
+
+        // Ecrire dans buffer
+        let message_vec = match serde_json::to_vec(&message_ref) {
+            Ok(resultat) => resultat,
+            Err(e) => {
+                error!("build_into Erreur serde_json::to_string {:?}", e);
+                Err("build_into:E1")?
+            }
+        };
+        debug!("Message serialise\n{:?}", from_utf8(message_vec.as_slice()));
+
+        // Copier string vers vec
+        buffer.clear();
+        buffer.extend(message_vec);
+
+        // Parse une nouvelle reference a partir du nouveau buffer
+        // Permet de transferer l'ownership des references vers l'objet buffer
+        let message_ref = MessageMilleGrillesRef::parse(from_utf8(buffer.as_slice()).unwrap()).unwrap();
+
+        Ok(message_ref)
+    }
+
+    pub fn build_into<const B: usize>(self, buffer: &'a mut Vec<u8, B>)
+                                      -> Result<MessageMilleGrillesRef<'a, C>, &'static str>
+    {
+        // Calculer pubkey
+        let verifying_key = self.signing_key.verifying_key();
+        let pubkey_bytes = verifying_key.as_bytes();
+        let mut buf_pubkey_str = [0u8; 64];
+        hex::encode_to_slice(pubkey_bytes, &mut buf_pubkey_str).unwrap();
+        let pubkey_str = from_utf8(&buf_pubkey_str).unwrap();
+
+        let message_id = self.generer_id(pubkey_str)?;
+        let signature = self.signer(message_id.as_str())?;
+
+        let message_ref: MessageMilleGrillesRef<C> = MessageMilleGrillesRef {
+            id: message_id.as_str(),
+            pubkey: pubkey_str,
+            estampille: self.estampille,
+            kind: self.kind,
+            contenu: self.contenu,
+            routage: self.routage,
+            #[cfg(feature = "serde_json")]
+            pre_migration: None,
+            origine: self.origine,
+            dechiffrage: self.dechiffrage,
+            signature: signature.as_str(),
+            certificat: self.certificat,
+            millegrille: self.millegrille,
+            #[cfg(feature = "serde_json")]
+            attachements: None,
+            contenu_valide: None,
+        };
+
+        // Ecrire dans buffer
+        buffer.resize_default(buffer.capacity()).unwrap();
+        let taille = match serde_json_core::to_slice(&message_ref, buffer) {
+            Ok(taille) => taille,
+            Err(e) => {
+                error!("build_into Erreur serde_json_core::to_slice {:?}", e);
+                Err("build_into:E1")?
+            }
+        };
+        buffer.truncate(taille);  // S'assurer que le Vec a la taille utilisee
+    debug!("Message serialise\n{:?}", from_utf8(buffer).unwrap());
+
+        // Parse une nouvelle reference a partir du nouveau buffer
+        // Permet de transferer l'ownership des references vers l'objet buffer
+        Ok(MessageMilleGrillesRef::parse(from_utf8(buffer).unwrap()).unwrap())
+    }
+
+    fn generer_id(&self, pubkey: &str) -> Result<String<64>, &'static str> {
+        // Extraire pubkey de la signing key
+        let mut hacheur = HacheurMessage::new(pubkey, &self.estampille, self.kind.clone(), self.contenu);
+        if let Some(routage) = self.routage.as_ref() {
+            hacheur = hacheur.routage(routage);
+        }
+        hacheur.hacher()
+    }
+
+    fn signer(&self, id: &str) -> Result<String<128>, &'static str> {
+        // Convertir id en bytes
+        let mut id_bytes = [0u8; 32] as MessageId;
+        if let Err(e) = hex::decode_to_slice(id, &mut id_bytes) {
+            error!("Hex error sur id {} : {:?}", id, e);
+            Err("signer:E1")?
+        }
+
+        let mut signature_buffer = [0u8; 128];
+        let signature_str = signer_into(self.signing_key, &id_bytes, &mut signature_buffer);
+
+        match String::from_str(signature_str) {
+            Ok(inner) => Ok(inner),
+            Err(()) => Err("signer:E2")?
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod messages_structs_tests {
     use super::*;
@@ -595,6 +868,23 @@ mod messages_structs_tests {
       "certificat": [
         "-----BEGIN CERTIFICATE-----\nMIICNTCCAeegAwIBAgIUDjXBdYYRZKopGYoEytpfIHPl0J0wBQYDK2VwMHIxLTAr\nBgNVBAMTJDU5ZWZkZDY4LTI1MWEtNGFiYS1hZTJlLWQwY2ZlMjM0M2YzNzFBMD8G\nA1UEChM4emVZbmNScUVxWjZlVEVtVVo4d2hKRnVIRzc5NmVTdkNUV0U0TTQzMml6\nWHJwMjJiQXR3R203SmYwHhcNMjQwMzE2MjIwMzA4WhcNMjQwNDE2MjIwMzI4WjCB\ngjEtMCsGA1UEAwwkNTllZmRkNjgtMjUxYS00YWJhLWFlMmUtZDBjZmUyMzQzZjM3\nMQ4wDAYDVQQLDAVtZWRpYTFBMD8GA1UECgw4emVZbmNScUVxWjZlVEVtVVo4d2hK\nRnVIRzc5NmVTdkNUV0U0TTQzMml6WHJwMjJiQXR3R203SmYwKjAFBgMrZXADIQDH\nemivSC5rk+uSFKz/i6j+Eg6ZB/xPcYM/Dg5E8oYz96N+MHwwKwYEKgMEAAQjNC5z\nZWN1cmUsMy5wcm90ZWdlLDIucHJpdmUsMS5wdWJsaWMwDQYEKgMEAQQFbWVkaWEw\nHwYDVR0jBBgwFoAUBi9eRwN/mAOj1iQmIW+U5NRb7NcwHQYDVR0OBBYEFMvYSbbV\ngmfeFwBv0snnKYq2R84AMAUGAytlcANBABYVN+crAcKhmQK1Bhi3GsyfWB8cxBvo\nj7jPDtTlZ7odEq6EJHNjewVIDzF5fxhAFEuJr6ToB5qJcKSh+asT6g4=\n-----END CERTIFICATE-----",
         "-----BEGIN CERTIFICATE-----\r\nMIIBozCCAVWgAwIBAgIKEwJHiRE3l0cjmDAFBgMrZXAwFjEUMBIGA1UEAxMLTWls\r\nbGVHcmlsbGUwHhcNMjQwMzE2MjE1NzI4WhcNMjUwOTI1MjE1NzI4WjByMS0wKwYD\r\nVQQDEyQ1OWVmZGQ2OC0yNTFhLTRhYmEtYWUyZS1kMGNmZTIzNDNmMzcxQTA/BgNV\r\nBAoTOHplWW5jUnFFcVo2ZVRFbVVaOHdoSkZ1SEc3OTZlU3ZDVFdFNE00MzJpelhy\r\ncDIyYkF0d0dtN0pmMCowBQYDK2VwAyEAI2iQQOBhz2fzhxHgFAU2MJpB7llfsDwu\r\nvGIybrbbqGCjYzBhMBIGA1UdEwEB/wQIMAYBAf8CAQAwCwYDVR0PBAQDAgEGMB0G\r\nA1UdDgQWBBQGL15HA3+YA6PWJCYhb5Tk1Fvs1zAfBgNVHSMEGDAWgBTTiP/MFw4D\r\nDwXqQ/J2LLYPRUkkETAFBgMrZXADQQD3Fh4DqpbZldMW3RUXfl5akQ0597g31ZW2\r\nnBFfY+4Xmwn1AJBJ41LPpV8shhqp7LCfdMZp4SC1+QkgLYQRXJUF\n-----END CERTIFICATE-----"
+      ]
+    }"#;
+
+    const MESSAGE_3: &str = r#"{
+      "id": "1dccf8b0021c07f8b2e7301599a860ae69d2b8d893fc0a74276984c131a99625",
+      "pubkey": "276bc0ac6df3e116db776773bd118c6df8e4fa428e5e5d8b872d6aa3b78c7029",
+      "estampille": 1710876049,
+      "kind": 5,
+      "contenu": "{\"instance_id\":null,\"domaine\":\"CorePki\",\"sous_domaines\":null,\"exchanges_routing\":null,\"primaire\":true,\"reclame_fuuids\":false}",
+      "routage": {
+        "action": "presenceDomaine",
+        "domaine": "CorePki"
+      },
+      "sig": "96578dc13c600b71440cc437a44aacf8536b066ce1101d7bc08ac717805e2264cb2aef7bebd395d6c5b26e76090020ce3ce9e2ca9f52622a7bd52e07336ba506",
+      "certificat": [
+        "-----BEGIN CERTIFICATE-----\nMIIClDCCAkagAwIBAgIURiDSIUHKulmAJZPGhm+sM63rHFEwBQYDK2VwMHIxLTAr\nBgNVBAMTJDU5ZWZkZDY4LTI1MWEtNGFiYS1hZTJlLWQwY2ZlMjM0M2YzNzFBMD8G\nA1UEChM4emVZbmNScUVxWjZlVEVtVVo4d2hKRnVIRzc5NmVTdkNUV0U0TTQzMml6\nWHJwMjJiQXR3R203SmYwHhcNMjQwMzE2MjE1ODE0WhcNMjQwNDE2MjE1ODM0WjCB\ngTEtMCsGA1UEAwwkNTllZmRkNjgtMjUxYS00YWJhLWFlMmUtZDBjZmUyMzQzZjM3\nMQ0wCwYDVQQLDARjb3JlMUEwPwYDVQQKDDh6ZVluY1JxRXFaNmVURW1VWjh3aEpG\ndUhHNzk2ZVN2Q1RXRTRNNDMyaXpYcnAyMmJBdHdHbTdKZjAqMAUGAytlcAMhACdr\nwKxt8+EW23dnc70RjG345PpCjl5di4ctaqO3jHApo4HdMIHaMCsGBCoDBAAEIzQu\nc2VjdXJlLDMucHJvdGVnZSwyLnByaXZlLDEucHVibGljMAwGBCoDBAEEBGNvcmUw\nTAYEKgMEAgREQ29yZUJhY2t1cCxDb3JlQ2F0YWxvZ3VlcyxDb3JlTWFpdHJlRGVz\nQ29tcHRlcyxDb3JlUGtpLENvcmVUb3BvbG9naWUwDwYDVR0RBAgwBoIEY29yZTAf\nBgNVHSMEGDAWgBQGL15HA3+YA6PWJCYhb5Tk1Fvs1zAdBgNVHQ4EFgQU3xakCYee\ngSk7a/FcxiMy8eDKAIYwBQYDK2VwA0EAuY1q7AZ6m7LTXZdyh8M2i/tMp0TKnSyj\nFVZjBXag4BxHnDIL1NU+rM5Tqvp/6AHtnoTdpgux1ygdDL6+f1A4BA==\n-----END CERTIFICATE-----\n",
+        "-----BEGIN CERTIFICATE-----\nMIIBozCCAVWgAwIBAgIKEwJHiRE3l0cjmDAFBgMrZXAwFjEUMBIGA1UEAxMLTWls\nbGVHcmlsbGUwHhcNMjQwMzE2MjE1NzI4WhcNMjUwOTI1MjE1NzI4WjByMS0wKwYD\nVQQDEyQ1OWVmZGQ2OC0yNTFhLTRhYmEtYWUyZS1kMGNmZTIzNDNmMzcxQTA/BgNV\nBAoTOHplWW5jUnFFcVo2ZVRFbVVaOHdoSkZ1SEc3OTZlU3ZDVFdFNE00MzJpelhy\ncDIyYkF0d0dtN0pmMCowBQYDK2VwAyEAI2iQQOBhz2fzhxHgFAU2MJpB7llfsDwu\nvGIybrbbqGCjYzBhMBIGA1UdEwEB/wQIMAYBAf8CAQAwCwYDVR0PBAQDAgEGMB0G\nA1UdDgQWBBQGL15HA3+YA6PWJCYhb5Tk1Fvs1zAfBgNVHSMEGDAWgBTTiP/MFw4D\nDwXqQ/J2LLYPRUkkETAFBgMrZXADQQD3Fh4DqpbZldMW3RUXfl5akQ0597g31ZW2\nnBFfY+4Xmwn1AJBJ41LPpV8shhqp7LCfdMZp4SC1+QkgLYQRXJUF\n-----END CERTIFICATE-----\n"
       ]
     }"#;
 
@@ -649,9 +939,34 @@ mod messages_structs_tests {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
         let mut parsed = buffer.parse().unwrap();
-        debug!("Contenu : {}", parsed.contenu);
+        debug!("Contenu\n{}", parsed.contenu);
         parsed.verifier_signature().unwrap();
         debug!("Parsed id: {}", parsed.id);
+    }
+
+    #[cfg(feature = "optional-defaults")]
+    #[test_log::test]
+    fn test_parse_contenu() {
+        let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
+        buffer.buffer.extend(MESSAGE_1.as_bytes());
+        let parsed = buffer.parse().unwrap();
+        debug!("Contenu parsed : {:?}", parsed.contenu);
+        assert!(serde_json::from_str::<Value>(parsed.contenu.as_ref()).is_err());
+
+        // let contenu_test = parsed.contenu.replace("\\\"", "\"");
+        // let contenu: Value = serde_json::from_str(contenu_test.as_str()).unwrap();
+        // let contenu_escaped: Result<std::string::String, std::string::String> = (JsonEscapeIter { s: parsed.contenu.chars() }).collect();
+        // let contenu: Value = serde_json::from_str(contenu_escaped.unwrap().as_str()).unwrap();
+        let contenu: Value = {
+            let buffer_contenu = parsed.contenu().unwrap();
+            buffer_contenu.deserialize().unwrap()
+        };
+        debug!("Contenu value : {:?}", contenu);
+
+        // let escapeIter = JsonEscapeIter { s: parsed.contenu.chars() };
+        // let reader = JsonEscapeIterAsRead::new(mapIter);
+        // let contenu_escaped_reader: Value = serde_json::from_reader(reader).unwrap();
+        // debug!("Contenu value escaped reader : {:?}", contenu);
     }
 
     #[cfg(feature = "optional-defaults")]
@@ -678,9 +993,96 @@ mod messages_structs_tests {
         let hachage = hex::encode(hachage);
         debug!("Hachage calcule avec serde : {}", hachage);
 
-        debug!("Contenu : {}", parsed.contenu);
         parsed.verifier_signature().unwrap();
         debug!("Parsed id: {}", parsed.id);
+    }
+
+    // #[cfg(feature = "optional-defaults")]
+    // #[test_log::test]
+    // fn test_message_3() {
+    //     let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
+    //     buffer.buffer.extend(MESSAGE_3.as_bytes());
+    //     let mut parsed = buffer.parse().unwrap();
+    //
+    //     let value_hachage = json!([
+    //         &parsed.pubkey,
+    //         parsed.estampille.timestamp(),
+    //         parsed.kind.clone() as isize,
+    //         parsed.contenu,
+    //         &parsed.routage,
+    //     ]);
+    //
+    //     // Comparer avec ancienne methode (serde)
+    //     let vec_hachage = serde_json::to_string(&value_hachage).unwrap();
+    //     debug!("String hachage : {}", vec_hachage);
+    //     let mut hacheur = HacheurBlake2s256::new();
+    //     hacheur.update(vec_hachage.as_bytes());
+    //     let hachage = hacheur.finalize();
+    //     let hachage = hex::encode(hachage);
+    //     debug!("Hachage calcule avec serde : {}", hachage);
+    //
+    //     debug!("Contenu : {}", parsed.contenu);
+    //     parsed.verifier_signature().unwrap();
+    //     debug!("Parsed id: {}", parsed.id);
+    // }
+
+    #[test_log::test]
+    fn test_parse_message_builder() {
+        let message_parsed = MessageMilleGrillesRefDefault::parse(crate::messages_structs::messages_structs_tests::MESSAGE_1).unwrap();
+        info!("test_parse_message\nid: {}\nestampille: {}", message_parsed.id, message_parsed.estampille);
+        assert_eq!("d49a375c980f1e70cdea697664610d70048899d1428909fdc29bd29cfc9dd1ca", message_parsed.id);
+        assert_eq!("9ff0c6443c9214ab9e8ee2d26b3ba6453e7f4f5f59477343e1b0cd747535005b13d453922faad1388e65850a1970662a69879b1b340767fb9f4bda6202412204", message_parsed.signature);
+        assert_eq!(MessageKind::Evenement, message_parsed.kind);
+    }
+
+    #[test_log::test]
+    fn test_build_into_u8() {
+        let contenu = "Le contenu a inclure";
+        let estampille = DateTime::from_timestamp(1710338722, 0).unwrap();
+        let signing_key = SigningKey::from_bytes(b"01234567890123456789012345678901");
+        let routage = RoutageMessage::for_action("Test", "test");
+        let mut certificat: Vec<&str, CONST_NOMBRE_CERTIFICATS_MAX> = Vec::new();
+        certificat.push("CERTIFICAT 1").unwrap();
+        certificat.push("CERTIFICAT 2").unwrap();
+
+        let generateur = MessageMilleGrillesBuilderDefault::new(
+            MessageKind::Commande, contenu, estampille, &signing_key)
+            .routage(routage)
+            .certificat(certificat);
+
+        let mut buffer: Vec<u8, CONST_BUFFER_MESSAGE_MIN> = Vec::new();
+        let message = generateur.build_into(&mut buffer).unwrap();
+
+        assert_eq!("305d8a90809399e68de9244bbb82d4589571be4b6566eb7ef06fde3fdb0fa418", message.id);
+        assert_eq!("7bc3079518ed11da0336085bf6962920ff87fb3c4d630a9b58cb6153674f5dd6", message.pubkey);
+        assert_eq!(estampille.timestamp(), message.estampille.timestamp());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test_log::test]
+    fn test_build_into_alloc() {
+        let contenu = "Le contenu a inclure";
+        let estampille = DateTime::from_timestamp(1710338722, 0).unwrap();
+        let signing_key = SigningKey::from_bytes(b"01234567890123456789012345678901");
+        let routage = RoutageMessage::for_action("Test", "test");
+        let mut certificat: Vec<&str, CONST_NOMBRE_CERTIFICATS_MAX> = Vec::new();
+        certificat.push("CERTIFICAT 1").unwrap();
+        certificat.push("CERTIFICAT 2").unwrap();
+
+        let generateur = MessageMilleGrillesBuilderDefault::new(
+            MessageKind::Commande, contenu, estampille, &signing_key)
+            .routage(routage)
+            .certificat(certificat);
+
+        let mut buffer: std::vec::Vec<u8> = std::vec::Vec::new();
+        {
+            let message_ref = generateur.build_into_alloc(&mut buffer).unwrap();
+            assert_eq!("305d8a90809399e68de9244bbb82d4589571be4b6566eb7ef06fde3fdb0fa418", message_ref.id);
+            assert_eq!("7bc3079518ed11da0336085bf6962920ff87fb3c4d630a9b58cb6153674f5dd6", message_ref.pubkey);
+            assert_eq!(estampille.timestamp(), message_ref.estampille.timestamp());
+        }
+        debug!("test_build_into_vec Vec buffer :\n{}", from_utf8(buffer.as_slice()).unwrap());
+        buffer.clear();
     }
 
 }

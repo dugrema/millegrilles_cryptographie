@@ -19,6 +19,7 @@ pub enum Error {
     Chacha20poly1350(aead::Error),
     #[cfg(feature = "dryoc")]
     Dryoc(dryoc::Error),
+    SerdeJson(serde_json::Error),
     #[cfg(feature = "std")]
     String(String),
     Str(&'static str),
@@ -56,5 +57,17 @@ impl From<multihash::Error> for Error {
 impl From<dryoc::Error> for Error {
     fn from(value: dryoc::Error) -> Self {
         Error::Dryoc(value)
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(value: serde_json::Error) -> Self {
+        Error::SerdeJson(value)
+    }
+}
+
+impl From<std::string::String> for Error {
+    fn from(value: std::string::String) -> Self {
+        Error::String(value)
     }
 }
