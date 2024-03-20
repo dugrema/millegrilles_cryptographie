@@ -153,7 +153,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     /// Contenu du message en format json-string
     /// Noter que la deserialization est incomplete, il faut retirer les escape chars
     /// avant de faire un nouveau parsing avec serde.
-    contenu: &'a str,
+    pub contenu: &'a str,
 
     /// Information de routage de message (optionnel, depend du kind)
     #[serde(skip_serializing_if = "Option::is_none")]

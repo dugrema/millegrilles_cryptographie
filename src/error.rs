@@ -1,3 +1,4 @@
+use std::fmt;
 #[cfg(feature = "chiffrage")]
 use chacha20poly1305::aead;
 #[cfg(feature = "openssl")]
@@ -23,6 +24,15 @@ pub enum Error {
     #[cfg(feature = "std")]
     String(String),
     Str(&'static str),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for Error {
 }
 
 #[cfg(feature = "openssl")]
@@ -69,5 +79,11 @@ impl From<serde_json::Error> for Error {
 impl From<std::string::String> for Error {
     fn from(value: std::string::String) -> Self {
         Error::String(value)
+    }
+}
+
+impl Into<std::string::String> for Error {
+    fn into(self) -> String {
+        format!("millegrilles_cryptographie::Error {:?}", self)
     }
 }
