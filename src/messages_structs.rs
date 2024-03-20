@@ -205,6 +205,115 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
 
 }
 
+#[cfg(feature = "alloc")]
+#[derive(Clone, Serialize, Deserialize)]
+/// Structure d'un message MilleGrille. Tous les elements sont en reference
+/// a des sources externes (e.g. buffer);
+pub struct MessageMilleGrillesOwned {
+    /// Identificateur unique du message. Correspond au hachage blake2s-256 en hex.
+    pub id: std::string::String,
+
+    /// Cle publique du certificat utilise pour la signature
+    pub pubkey: std::string::String,
+
+    /// Date de creation du message
+    #[serde(with = "epochseconds")]
+    pub estampille: DateTime<Utc>,
+
+    /// Kind du message, correspond a enum MessageKind
+    pub kind: MessageKind,
+
+    /// Contenu du message en format json-string
+    /// Noter que la deserialization est incomplete, il faut retirer les escape chars
+    /// avant de faire un nouveau parsing avec serde.
+    pub contenu: std::string::String,
+
+    /// Information de routage de message (optionnel, depend du kind)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routage: Option<RoutageMessageOwned>,
+
+    /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
+    #[cfg(feature = "serde_json")]
+    #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
+    pub pre_migration: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
+
+    /// IDMG d'origine du message
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origine: Option<std::string::String>,
+
+    /// Information de dechiffrage pour contenu chiffre
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dechiffrage: Option<DechiffrageInterMillegrilleOwned>,
+
+    /// Signature ed25519 encodee en hex
+    #[serde(rename = "sig")]
+    pub signature: std::string::String,
+
+    /// Chaine de certificats en format PEM.
+    #[serde(rename = "certificat", skip_serializing_if = "Option::is_none")]
+    pub certificat: Option<std::vec::Vec<std::string::String>>,
+
+    /// Certificat de millegrille (root).
+    #[serde(rename = "millegrille", skip_serializing_if = "Option::is_none")]
+    pub millegrille: Option<std::string::String>,
+
+    /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
+    #[cfg(feature = "serde_json")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachements: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
+
+    #[serde(skip)]
+    /// Apres verification, conserve : signature valide, hachage valide
+    pub contenu_valide: Option<(bool, bool)>,
+}
+
+impl MessageMilleGrillesOwned {
+
+    /// Parse le contenu et retourne un buffer qui peut servir a deserializer avec serde
+    pub fn deserialize<'a, D>(&'a self) -> Result<D, Error>
+        where D: Deserialize<'a>
+    {
+        Ok(serde_json::from_str(self.contenu.as_str())?)
+    }
+
+    /// Verifie la signature interne du message.
+    /// Lance une Err si invalide.
+    /// Note : ne valide pas la correspondance au certificat/IDMG ni les dates.
+    pub fn verifier_signature(&mut self) -> Result<(), Error> {
+        if let Some(inner) = self.contenu_valide {
+            if inner == (true, true) {
+                return Ok(())
+            }
+            Err(Error::Str("verifier_signature Invalide"))?
+        }
+
+        // let vec_message = match serde_json::to_vec(&self) {
+        //     Ok(inner) => inner,
+        //     Err(e) => Err("MessageMilleGrillesOwned::verifier_signature Erreur serde_json::to_vec")?
+        // };
+        // let message_buffer = MessageMilleGrillesBufferDefault::from(vec_message);
+        let message_buffer: MessageMilleGrillesBufferDefault = self.clone().try_into()?;
+        let mut message_ref = match message_buffer.parse() {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::Str(e))?
+        };
+        match message_ref.verifier_signature() {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Error::Str(e))?
+        }
+    }
+
+}
+
+impl TryInto<MessageMilleGrillesBufferDefault> for MessageMilleGrillesOwned {
+    type Error = Error;
+
+    fn try_into(self) -> Result<MessageMilleGrillesBufferDefault, Self::Error> {
+        let vec_message = serde_json::to_vec(&self)?;
+        Ok(MessageMilleGrillesBufferDefault::from(vec_message))
+    }
+}
+
 pub struct MessageMilleGrilleBufferContenu {
     buffer: std::vec::Vec<u8>,
 }
