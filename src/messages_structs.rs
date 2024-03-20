@@ -796,7 +796,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             }
         };
         buffer.truncate(taille);  // S'assurer que le Vec a la taille utilisee
-    debug!("Message serialise\n{:?}", from_utf8(buffer).unwrap());
+        debug!("Message serialise\n{:?}", from_utf8(buffer).unwrap());
 
         // Parse une nouvelle reference a partir du nouveau buffer
         // Permet de transferer l'ownership des references vers l'objet buffer
@@ -804,11 +804,22 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
     }
 
     fn generer_id(&self, pubkey: &str) -> Result<String<64>, &'static str> {
-        // Extraire pubkey de la signing key
-        let mut hacheur = HacheurMessage::new(pubkey, &self.estampille, self.kind.clone(), self.contenu);
+        // Escape chars dans le contenu. Le contenu du json-string doit avoir tous
+        // les chars escaped. serde_json::to_string va s'en occuper durant la serialisation du
+        // contenu.
+        let contenu_escaped = match serde_json::to_string(self.contenu) {
+            Ok(inner) => inner,
+            Err(_) => Err("generer_id Erreur parse contenu")?
+        };
+        // Retirer les guillemets au debut et la fin de la string serialisee.
+        let contenu_escape_inner = &contenu_escaped[1..contenu_escaped.len()-1];
+        // debug!("Contenu escaped\n{}", contenu_escaped);
+
+        let mut hacheur = HacheurMessage::new(pubkey, &self.estampille, self.kind.clone(), contenu_escape_inner);
         if let Some(routage) = self.routage.as_ref() {
             hacheur = hacheur.routage(routage);
         }
+
         hacheur.hacher()
     }
 
@@ -871,23 +882,6 @@ mod messages_structs_tests {
       ]
     }"#;
 
-    const MESSAGE_3: &str = r#"{
-      "id": "1dccf8b0021c07f8b2e7301599a860ae69d2b8d893fc0a74276984c131a99625",
-      "pubkey": "276bc0ac6df3e116db776773bd118c6df8e4fa428e5e5d8b872d6aa3b78c7029",
-      "estampille": 1710876049,
-      "kind": 5,
-      "contenu": "{\"instance_id\":null,\"domaine\":\"CorePki\",\"sous_domaines\":null,\"exchanges_routing\":null,\"primaire\":true,\"reclame_fuuids\":false}",
-      "routage": {
-        "action": "presenceDomaine",
-        "domaine": "CorePki"
-      },
-      "sig": "96578dc13c600b71440cc437a44aacf8536b066ce1101d7bc08ac717805e2264cb2aef7bebd395d6c5b26e76090020ce3ce9e2ca9f52622a7bd52e07336ba506",
-      "certificat": [
-        "-----BEGIN CERTIFICATE-----\nMIIClDCCAkagAwIBAgIURiDSIUHKulmAJZPGhm+sM63rHFEwBQYDK2VwMHIxLTAr\nBgNVBAMTJDU5ZWZkZDY4LTI1MWEtNGFiYS1hZTJlLWQwY2ZlMjM0M2YzNzFBMD8G\nA1UEChM4emVZbmNScUVxWjZlVEVtVVo4d2hKRnVIRzc5NmVTdkNUV0U0TTQzMml6\nWHJwMjJiQXR3R203SmYwHhcNMjQwMzE2MjE1ODE0WhcNMjQwNDE2MjE1ODM0WjCB\ngTEtMCsGA1UEAwwkNTllZmRkNjgtMjUxYS00YWJhLWFlMmUtZDBjZmUyMzQzZjM3\nMQ0wCwYDVQQLDARjb3JlMUEwPwYDVQQKDDh6ZVluY1JxRXFaNmVURW1VWjh3aEpG\ndUhHNzk2ZVN2Q1RXRTRNNDMyaXpYcnAyMmJBdHdHbTdKZjAqMAUGAytlcAMhACdr\nwKxt8+EW23dnc70RjG345PpCjl5di4ctaqO3jHApo4HdMIHaMCsGBCoDBAAEIzQu\nc2VjdXJlLDMucHJvdGVnZSwyLnByaXZlLDEucHVibGljMAwGBCoDBAEEBGNvcmUw\nTAYEKgMEAgREQ29yZUJhY2t1cCxDb3JlQ2F0YWxvZ3VlcyxDb3JlTWFpdHJlRGVz\nQ29tcHRlcyxDb3JlUGtpLENvcmVUb3BvbG9naWUwDwYDVR0RBAgwBoIEY29yZTAf\nBgNVHSMEGDAWgBQGL15HA3+YA6PWJCYhb5Tk1Fvs1zAdBgNVHQ4EFgQU3xakCYee\ngSk7a/FcxiMy8eDKAIYwBQYDK2VwA0EAuY1q7AZ6m7LTXZdyh8M2i/tMp0TKnSyj\nFVZjBXag4BxHnDIL1NU+rM5Tqvp/6AHtnoTdpgux1ygdDL6+f1A4BA==\n-----END CERTIFICATE-----\n",
-        "-----BEGIN CERTIFICATE-----\nMIIBozCCAVWgAwIBAgIKEwJHiRE3l0cjmDAFBgMrZXAwFjEUMBIGA1UEAxMLTWls\nbGVHcmlsbGUwHhcNMjQwMzE2MjE1NzI4WhcNMjUwOTI1MjE1NzI4WjByMS0wKwYD\nVQQDEyQ1OWVmZGQ2OC0yNTFhLTRhYmEtYWUyZS1kMGNmZTIzNDNmMzcxQTA/BgNV\nBAoTOHplWW5jUnFFcVo2ZVRFbVVaOHdoSkZ1SEc3OTZlU3ZDVFdFNE00MzJpelhy\ncDIyYkF0d0dtN0pmMCowBQYDK2VwAyEAI2iQQOBhz2fzhxHgFAU2MJpB7llfsDwu\nvGIybrbbqGCjYzBhMBIGA1UdEwEB/wQIMAYBAf8CAQAwCwYDVR0PBAQDAgEGMB0G\nA1UdDgQWBBQGL15HA3+YA6PWJCYhb5Tk1Fvs1zAfBgNVHSMEGDAWgBTTiP/MFw4D\nDwXqQ/J2LLYPRUkkETAFBgMrZXADQQD3Fh4DqpbZldMW3RUXfl5akQ0597g31ZW2\nnBFfY+4Xmwn1AJBJ41LPpV8shhqp7LCfdMZp4SC1+QkgLYQRXJUF\n-----END CERTIFICATE-----\n"
-      ]
-    }"#;
-
     #[test_log::test]
     fn test_parse_message() {
         let message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_1).unwrap();
@@ -901,10 +895,14 @@ mod messages_structs_tests {
     fn test_hacher_document() {
         let pubkey = "d1d9c2146de0e59971249489d971478050d55bc913ddeeba0bf3c60dd5b2cd31";
         let estampille = DateTime::from_timestamp(1710338722, 0).unwrap();
-        let contenu = "{\"domaine\":\"CoreMaitreDesComptes\",\"exchanges_routing\":null,\"instance_id\":\"f861aafd-5297-406f-8617-f7b8809dd448\",\"primaire\":true,\"reclame_fuuids\":false,\"sous_domaines\":null}";
-        let hacheur = HacheurMessage::new(pubkey, &estampille, MessageKind::Reponse, contenu);
+        // let contenu = "{\"domaine\":\"CoreMaitreDesComptes\",\"exchanges_routing\":null,\"instance_id\":\"f861aafd-5297-406f-8617-f7b8809dd448\",\"primaire\":true,\"reclame_fuuids\":false,\"sous_domaines\":null}";
+        let contenu_doc = json!({"domaine": "CoreMaitreDesComptes"});
+        let contenu = serde_json::to_string(&contenu_doc).unwrap();
+        let contenu = serde_json::to_string(&contenu).unwrap();  // Escape to string
+        debug!("Contenu doc json:\n{}", contenu);
+        let hacheur = HacheurMessage::new(pubkey, &estampille, MessageKind::Reponse, contenu.as_str());
         let resultat = hacheur.hacher().unwrap();
-        assert_eq!("482f08d4c026e3c1add5f86c77e81e13d96cd1a09df7886852ef33a53f705689", resultat);
+        assert_eq!("ed0f9fe63ffb52c470b187d309010efc1e88ff9bac755a1f3eaab7da0eaa18f8", resultat);
     }
 
     #[test_log::test]
@@ -997,35 +995,6 @@ mod messages_structs_tests {
         debug!("Parsed id: {}", parsed.id);
     }
 
-    // #[cfg(feature = "optional-defaults")]
-    // #[test_log::test]
-    // fn test_message_3() {
-    //     let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
-    //     buffer.buffer.extend(MESSAGE_3.as_bytes());
-    //     let mut parsed = buffer.parse().unwrap();
-    //
-    //     let value_hachage = json!([
-    //         &parsed.pubkey,
-    //         parsed.estampille.timestamp(),
-    //         parsed.kind.clone() as isize,
-    //         parsed.contenu,
-    //         &parsed.routage,
-    //     ]);
-    //
-    //     // Comparer avec ancienne methode (serde)
-    //     let vec_hachage = serde_json::to_string(&value_hachage).unwrap();
-    //     debug!("String hachage : {}", vec_hachage);
-    //     let mut hacheur = HacheurBlake2s256::new();
-    //     hacheur.update(vec_hachage.as_bytes());
-    //     let hachage = hacheur.finalize();
-    //     let hachage = hex::encode(hachage);
-    //     debug!("Hachage calcule avec serde : {}", hachage);
-    //
-    //     debug!("Contenu : {}", parsed.contenu);
-    //     parsed.verifier_signature().unwrap();
-    //     debug!("Parsed id: {}", parsed.id);
-    // }
-
     #[test_log::test]
     fn test_parse_message_builder() {
         let message_parsed = MessageMilleGrillesRefDefault::parse(crate::messages_structs::messages_structs_tests::MESSAGE_1).unwrap();
@@ -1051,7 +1020,8 @@ mod messages_structs_tests {
             .certificat(certificat);
 
         let mut buffer: Vec<u8, CONST_BUFFER_MESSAGE_MIN> = Vec::new();
-        let message = generateur.build_into(&mut buffer).unwrap();
+        let mut message = generateur.build_into(&mut buffer).unwrap();
+        assert!(message.verifier_signature().is_ok());
 
         assert_eq!("305d8a90809399e68de9244bbb82d4589571be4b6566eb7ef06fde3fdb0fa418", message.id);
         assert_eq!("7bc3079518ed11da0336085bf6962920ff87fb3c4d630a9b58cb6153674f5dd6", message.pubkey);
@@ -1061,7 +1031,8 @@ mod messages_structs_tests {
     #[cfg(feature = "alloc")]
     #[test_log::test]
     fn test_build_into_alloc() {
-        let contenu = "Le contenu a inclure";
+        let contenu = "{\"contenu\":\"Le contenu a inclure\"}";
+        debug!("Contenu initial\n{}", contenu);
         let estampille = DateTime::from_timestamp(1710338722, 0).unwrap();
         let signing_key = SigningKey::from_bytes(b"01234567890123456789012345678901");
         let routage = RoutageMessage::for_action("Test", "test");
@@ -1076,8 +1047,10 @@ mod messages_structs_tests {
 
         let mut buffer: std::vec::Vec<u8> = std::vec::Vec::new();
         {
-            let message_ref = generateur.build_into_alloc(&mut buffer).unwrap();
-            assert_eq!("305d8a90809399e68de9244bbb82d4589571be4b6566eb7ef06fde3fdb0fa418", message_ref.id);
+            let mut message_ref = generateur.build_into_alloc(&mut buffer).unwrap();
+            debug!("Message ref contenu\n{}", message_ref.contenu);
+            assert!(message_ref.verifier_signature().is_ok());
+            assert_eq!("03bed2d56baa397dae02c4ffc267f9d71aa1f78f38e64cd03b93461d5c19fc4c", message_ref.id);
             assert_eq!("7bc3079518ed11da0336085bf6962920ff87fb3c4d630a9b58cb6153674f5dd6", message_ref.pubkey);
             assert_eq!(estampille.timestamp(), message_ref.estampille.timestamp());
         }
