@@ -87,7 +87,7 @@ trait CleChiffrage {
     fn verification(&self) -> Option<&String>;
 }
 
-trait CleChiffrageX25519: CleChiffrage {
+pub trait CleChiffrageX25519: CleChiffrage {
     fn chiffrer_x25519(&mut self, cles_publiques: Vec<&EnveloppeCertificat>) -> Result<(), Error>;
 }
 
@@ -119,7 +119,7 @@ impl<const C: usize> CleChiffrage for CleChiffrageStruct<C> {
 
 pub type CleChiffrageX25519Impl = CleChiffrageStruct<X25519_KEY_LEN>;
 
-impl CleChiffrageX25519 for CleChiffrageX25519Impl {
+impl<const C: usize> CleChiffrageX25519 for CleChiffrageStruct<C> {
     fn chiffrer_x25519(&mut self, cles_publiques: Vec<&EnveloppeCertificat>) -> Result<(), Error> {
         for cle in cles_publiques {
             // Recuperer cle publique Ed25519

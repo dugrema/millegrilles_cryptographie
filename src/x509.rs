@@ -236,6 +236,14 @@ impl EnveloppeCertificat {
         }
         vec
     }
+
+    pub fn from_file(cert: &PathBuf) -> Result<Self, Error> {
+        let chaine_pem_string = match read_to_string(cert) {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_files Erreur read_to_string cert : {:?}", e)))?
+        };
+        Ok(EnveloppeCertificat::try_from(chaine_pem_string.as_str())?)
+    }
 }
 
 impl TryFrom<&str> for EnveloppeCertificat {

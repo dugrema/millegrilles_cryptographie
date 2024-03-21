@@ -9,10 +9,11 @@ use heapless::{Vec, FnvIndexMap, String};
 use log::{debug, error};
 use multibase::Base;
 use serde_json::Value;
-use crate::chiffrage_cles::Cipher;
+use crate::chiffrage_cles::{Cipher, CleChiffrageX25519};
 use crate::ed25519::{MessageId, signer_into, verifier};
 use crate::error::Error;
 use crate::hachages::{HacheurInterne, HacheurBlake2s256};
+use crate::x509::EnveloppeCertificat;
 
 pub const CONST_NOMBRE_CERTIFICATS_MAX: usize = 4;
 const CONST_NOMBRE_CLES_MAX: usize = 8;
@@ -882,6 +883,7 @@ pub struct MessageMilleGrillesBuilder<'a, const C: usize> {
     #[cfg(feature = "alloc")]
     attachements: Option<HashMap<std::string::String, Value>>,
     signing_key: &'a SigningKey,
+    cles_chiffrage: Option<std::vec::Vec<&'a EnveloppeCertificat>>
 }
 
 impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
@@ -893,7 +895,8 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             dechiffrage: None,
             certificat: None,
             millegrille: None, attachements: None,
-            signing_key
+            signing_key,
+            cles_chiffrage: None,
         }
     }
 
@@ -919,6 +922,11 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 
     pub fn millegrille(mut self, millegrille: &'a str) -> Self {
         self.millegrille = Some(millegrille);
+        self
+    }
+
+    pub fn cles_chiffrage(mut self, cles_chiffrage: std::vec::Vec<&'a EnveloppeCertificat>) -> Self {
+        self.cles_chiffrage = Some(cles_chiffrage);
         self
     }
 
@@ -1004,7 +1012,11 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         where P: Cipher<K>
     {
         // Prendre le contenu du builder, le compresser et le chiffrer.
-        let resultat_chiffrage = cipher.to_gz_vec(self.contenu.as_bytes())?;
+        let mut resultat_chiffrage = cipher.to_gz_vec(self.contenu.as_bytes())?;
+        if let Some(cles_chiffrage) = self.cles_chiffrage.as_ref() {
+            resultat_chiffrage.cles.chiffrer_x25519(cles_chiffrage.to_owned())?;
+        }
+
         let contenu_multibase = multibase::encode(Base::Base64, resultat_chiffrage.ciphertext);
         self.contenu = Cow::Owned(contenu_multibase);
 
@@ -1126,10 +1138,12 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 
 #[cfg(test)]
 mod messages_structs_tests {
+    use std::path::PathBuf;
     use super::*;
     use log::info;
     use serde_json::json;
     use crate::chiffrage_mgs4::CipherMgs4;
+    use crate::x509::{EnveloppeCertificat, EnveloppePrivee};
 
     const MESSAGE_1: &str = r#"{
       "id": "d49a375c980f1e70cdea697664610d70048899d1428909fdc29bd29cfc9dd1ca",
@@ -1381,6 +1395,53 @@ mod messages_structs_tests {
             debug!("Message ref contenu\n{}", message_ref.contenu);
             assert!(message_ref.verifier_signature().is_ok());
             assert_eq!(estampille.timestamp(), message_ref.estampille.timestamp());
+        }
+        debug!("test_build_into_vec Vec buffer :\n{}", from_utf8(buffer.as_slice()).unwrap());
+        buffer.clear();
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test_log::test]
+    fn test_encrypt_into_alloc_certs() {
+        let contenu = "{\"contenu\":\"Le contenu a inclure\"}";
+        debug!("Contenu initial\n{}", contenu);
+        let estampille = DateTime::from_timestamp(1710338722, 0).unwrap();
+        let signing_key = SigningKey::from_bytes(b"01234567890123456789012345678901");
+        let routage = RoutageMessage::for_action("Test", "test");
+        let mut certificat: Vec<&str, CONST_NOMBRE_CERTIFICATS_MAX> = Vec::new();
+        certificat.push("CERTIFICAT 1").unwrap();
+        certificat.push("CERTIFICAT 2").unwrap();
+
+        let enveloppe_ca = EnveloppeCertificat::from_file(
+            &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")).unwrap();
+
+        let enveloppe_core = EnveloppePrivee::from_files(
+            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert"),
+            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cle"),
+            &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")
+        ).unwrap();
+
+        let enveloppes = vec![
+            &enveloppe_core.enveloppe_pub
+        ];
+
+        let cipher = CipherMgs4::with_ca(&enveloppe_ca).unwrap();
+
+        let generateur = MessageMilleGrillesBuilderDefault::new(
+            MessageKind::CommandeInterMillegrille, contenu, estampille, &signing_key)
+            .routage(routage)
+            .origine("ORIGINE")
+            .certificat(certificat)
+            .cles_chiffrage(enveloppes);
+
+        let mut buffer: std::vec::Vec<u8> = std::vec::Vec::new();
+        {
+            // let mut message_ref = generateur.build_into_alloc(&mut buffer).unwrap();
+            let mut message_ref = generateur.encrypt_into_alloc(&mut buffer, cipher).unwrap();
+            debug!("Message ref contenu\n{}", message_ref.contenu);
+            assert!(message_ref.verifier_signature().is_ok());
+            assert_eq!(estampille.timestamp(), message_ref.estampille.timestamp());
+            assert_eq!(2, message_ref.dechiffrage.unwrap().cles.unwrap().len());
         }
         debug!("test_build_into_vec Vec buffer :\n{}", from_utf8(buffer.as_slice()).unwrap());
         buffer.clear();

@@ -46,10 +46,7 @@ impl CipherMgs4 {
         Self::with_secret(CleSecreteCipher::CleSecrete(cle_secrete))
     }
 
-    pub fn with_ca<C>(ca: C) -> Result<Self, Error>
-        where C: AsRef<EnveloppeCertificat>
-    {
-        let ca = ca.as_ref();
+    pub fn with_ca(ca: &EnveloppeCertificat) -> Result<Self, Error> {
         if !ca.est_ca()? {
             Err(Error::Str("Le certificat n'est pas CA"))?
         }
