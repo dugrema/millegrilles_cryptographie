@@ -1,12 +1,15 @@
 use core::str::{from_utf8, FromStr};
-use std::collections::BTreeMap;
+use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap};
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
 use heapless::{Vec, FnvIndexMap, String};
 use log::{debug, error};
+use multibase::Base;
 use serde_json::Value;
+use crate::chiffrage_cles::Cipher;
 use crate::ed25519::{MessageId, signer_into, verifier};
 use crate::error::Error;
 use crate::hachages::{HacheurInterne, HacheurBlake2s256};
@@ -45,6 +48,10 @@ pub struct DechiffrageInterMillegrille<'a> {
     pub hachage: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub header: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification: Option<&'a str>,
 }
 
 impl<'a> Into<DechiffrageInterMillegrilleOwned> for &DechiffrageInterMillegrille<'a> {
@@ -67,6 +74,8 @@ impl<'a> Into<DechiffrageInterMillegrilleOwned> for &DechiffrageInterMillegrille
             format: self.format.to_string(),
             hachage: match self.hachage { Some(inner) => Some(inner.to_string()), None => None },
             header: match self.header { Some(inner) => Some(inner.to_string()), None => None },
+            nonce: match self.nonce { Some(inner) => Some(inner.to_string()), None => None },
+            verification: match self.verification { Some(inner) => Some(inner.to_string()), None => None },
         }
     }
 }
@@ -82,6 +91,41 @@ pub struct DechiffrageInterMillegrilleOwned {
     pub hachage: Option<std::string::String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub header: Option<std::string::String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<std::string::String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification: Option<std::string::String>,
+}
+
+impl<'a> TryInto<DechiffrageInterMillegrille<'a>> for &'a DechiffrageInterMillegrilleOwned {
+
+    type Error = Error;
+
+    fn try_into(self) -> Result<DechiffrageInterMillegrille<'a>, Self::Error> {
+
+        let cles = match &self.cles {
+            Some(inner) => {
+                let mut cles = FnvIndexMap::new();
+                for (cle, value) in inner {
+                    if let Err(_) = cles.insert(cle.as_str(), value.as_str()) {
+                        Err(Error::Str("try_into Erreur TryInto<DechiffrageInterMillegrille>"))?
+                    }
+                }
+                Some(cles)
+            },
+            None => None
+        };
+
+        Ok(DechiffrageInterMillegrille {
+            cle_id: match &self.cle_id { Some(inner) => Some(inner.as_str()), None => None },
+            cles,
+            format: self.format.as_str(),
+            hachage: match &self.hachage { Some(inner) => Some(inner.as_str()), None => None },
+            header: match &self.header { Some(inner) => Some(inner.as_str()), None => None },
+            nonce: match &self.nonce { Some(inner) => Some(inner.as_str()), None => None },
+            verification: match &self.verification { Some(inner) => Some(inner.as_str()), None => None },
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,7 +194,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     /// Kind du message, correspond a enum MessageKind
     pub kind: MessageKind,
 
-    /// Contenu du message en format json-string
+    /// Contenu **json escaped** du message en format json-string
     /// Noter que la deserialization est incomplete, il faut retirer les escape chars
     /// avant de faire un nouveau parsing avec serde.
     pub contenu: &'a str,
@@ -187,7 +231,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
     #[cfg(feature = "serde_json")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachements: Option<std::collections::HashMap<&'a str, serde_json::Value>>,
+    pub attachements: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
 
     #[serde(skip)]
     /// Apres verification, conserve : signature valide, hachage valide
@@ -200,6 +244,7 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
     pub fn contenu(&self) -> Result<MessageMilleGrilleBufferContenu, Error> {
         let contenu_escaped: Result<std::string::String, std::string::String> = (JsonEscapeIter { s: self.contenu.chars() }).collect();
         let contenu_vec =  std::vec::Vec::from(contenu_escaped?.as_bytes());
+
         Ok(MessageMilleGrilleBufferContenu { buffer: contenu_vec })
     }
 
@@ -267,6 +312,50 @@ pub struct MessageMilleGrillesOwned {
     pub contenu_valide: Option<(bool, bool)>,
 }
 
+impl<'a, const C: usize> Into<MessageMilleGrillesOwned> for MessageMilleGrillesRef<'a, C> {
+    fn into(self) -> MessageMilleGrillesOwned {
+        MessageMilleGrillesOwned {
+            id: self.id.to_string(),
+            pubkey: self.pubkey.to_string(),
+            estampille: self.estampille.clone(),
+            kind: self.kind.clone(),
+            contenu: self.contenu.to_string(),
+            routage: match self.routage.as_ref() { Some(inner) => Some(inner.into()), None => None },
+            pre_migration: match self.pre_migration.as_ref() {
+                Some(inner) => Some(mapref_toowned(inner)),
+                None => None
+            },
+            origine: match self.origine.as_ref() { Some(inner) => Some(inner.to_string()), None => None },
+            dechiffrage: match self.dechiffrage.as_ref() { Some(inner) => Some(inner.into()), None => None },
+            signature: self.signature.to_string(),
+            certificat: match self.certificat.as_ref() {
+                Some(inner) => {
+                    let mut vec_owned = std::vec::Vec::new();
+                    for val in inner {
+                        vec_owned.push(val.to_string());
+                    }
+                    Some(vec_owned)
+                },
+                None => None
+            },
+            millegrille: match self.millegrille.as_ref() { Some(inner) => Some(inner.to_string()), None => None },
+            attachements: match self.attachements.as_ref() {
+                Some(inner) => Some(inner.clone()),
+                None => None
+            },
+            contenu_valide: self.contenu_valide.clone(),
+        }
+    }
+}
+
+fn mapref_toowned(source: &HashMap<&str, Value>) -> HashMap<std::string::String, Value> {
+    let mut hashmap = HashMap::new();
+    for (key, value) in source.iter() {
+        hashmap.insert(key.to_string(), value.to_owned());
+    }
+    hashmap
+}
+
 impl MessageMilleGrillesOwned {
 
     /// Parse le contenu et retourne un buffer qui peut servir a deserializer avec serde
@@ -287,20 +376,31 @@ impl MessageMilleGrillesOwned {
             Err(Error::Str("verifier_signature Invalide"))?
         }
 
-        // let vec_message = match serde_json::to_vec(&self) {
-        //     Ok(inner) => inner,
-        //     Err(e) => Err("MessageMilleGrillesOwned::verifier_signature Erreur serde_json::to_vec")?
-        // };
-        // let message_buffer = MessageMilleGrillesBufferDefault::from(vec_message);
         let message_buffer: MessageMilleGrillesBufferDefault = self.clone().try_into()?;
         let mut message_ref = match message_buffer.parse() {
             Ok(inner) => inner,
             Err(e) => Err(Error::Str(e))?
         };
-        match message_ref.verifier_signature() {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Error::Str(e))?
+        message_ref.verifier_signature()?;
+        Ok(())
+    }
+
+    pub fn ajouter_attachement<K,V>(&mut self, cle: K, valeur: V) -> Result<(), Error>
+        where K: Into<std::string::String>, V: Serialize
+    {
+        let cle = cle.into();
+        let valeur: Value = serde_json::to_value(valeur)?;
+        match self.attachements.as_mut() {
+            Some(inner) => {
+                inner.insert(cle, valeur);
+            },
+            None => {
+                let mut hashmap = HashMap::new();
+                hashmap.insert(cle, valeur);
+                self.attachements = Some(hashmap);
+            }
         }
+        Ok(())
     }
 
 }
@@ -412,19 +512,21 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         Ok(message_parsed)
     }
 
-    pub fn builder(kind: MessageKind, contenu: &'a str, estampille: DateTime<Utc>, signing_key: &'a SigningKey) -> MessageMilleGrillesBuilder<'a, C> {
+    pub fn builder(kind: MessageKind, contenu: &'a str, estampille: DateTime<Utc>, signing_key: &'a SigningKey)
+        -> MessageMilleGrillesBuilder<'a, C>
+    {
         MessageMilleGrillesBuilder::new(kind, contenu, estampille, signing_key)
     }
 
     /// Verifie la signature interne du message.
     /// Lance une Err si invalide.
     /// Note : ne valide pas la correspondance au certificat/IDMG ni les dates.
-    pub fn verifier_signature(&mut self) -> Result<(), &'static str> {
+    pub fn verifier_signature(&mut self) -> Result<(), Error> {
         if let Some(inner) = self.contenu_valide {
             if inner == (true, true) {
                 return Ok(())
             }
-            Err("verifier_signature Invalide")?
+            Err(Error::Str("verifier_signature Invalide"))?
         }
 
         // Verifier le hachage du message
@@ -433,7 +535,7 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         if self.id != hachage_string.as_str() {
             self.contenu_valide = Some((false, false));
             error!("verifier_signature hachage invalide : id: {}, calcule: {}", self.id, hachage_string);
-            Err("verifier_signature hachage invalide")?
+            Err(Error::Str("verifier_signature hachage invalide"))?
         }
 
         // Extraire cle publique (bytes de pubkey) pour verifier la signature
@@ -446,13 +548,13 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         if let Err(e) = hex::decode_to_slice(self.id, &mut hachage_bytes) {
             error!("verifier_signature Erreur hex {:?}", e);
             self.contenu_valide = Some((false, true));
-            Err("verifier_signature:E1")?
+            Err(Error::Str("verifier_signature:E1"))?
         }
 
         // Verifier la signature
         if ! verifier(&verifying_key, &hachage_bytes, self.signature) {
             self.contenu_valide = Some((false, true));
-            Err("verifier_signature signature invalide")?
+            Err(Error::Str("verifier_signature signature invalide"))?
         }
 
         // Marquer signature valide=true, hachage valide=true
@@ -478,7 +580,7 @@ pub struct HacheurMessage<'a> {
     routage: Option<&'a RoutageMessage<'a>>,
     // pre_migration: Option<FnvIndexMap<&'a str, Value, 10>>,
     origine: Option<&'a str>,
-    dechiffrage: Option<&'a DechiffrageInterMillegrille<'a>>,
+    dechiffrage: Option<DechiffrageInterMillegrille<'a>>,
 }
 
 impl<'a> HacheurMessage<'a> {
@@ -506,7 +608,7 @@ impl<'a> HacheurMessage<'a> {
         self
     }
 
-    pub fn dechiffrage(mut self, dechiffrage: &'a DechiffrageInterMillegrille<'a>) -> Self {
+    pub fn dechiffrage(mut self, dechiffrage: DechiffrageInterMillegrille<'a>) -> Self {
         self.dechiffrage = Some(dechiffrage);
         self
     }
@@ -556,7 +658,7 @@ impl<'a> HacheurMessage<'a> {
         self.hacheur.update(&buffer[..dechiffrage_size]);
     }
 
-    pub fn hacher(mut self) -> Result<String<64>, &'static str> {
+    pub fn hacher(mut self) -> Result<String<64>, Error> {
         // Effectuer le hachage de : ["pubkey", estampille, kind, "contenu"
         self.hacher_base();
 
@@ -571,7 +673,7 @@ impl<'a> HacheurMessage<'a> {
 
                 if self.routage.is_none() {
                     error!("HacheurMessage::hacher Routage requis (None)");
-                    Err("HacheurMessage::hacher:E1")?
+                    Err(Error::Str("HacheurMessage::hacher:E1"))?
                 }
 
                 // Ajouter routage
@@ -585,8 +687,9 @@ impl<'a> HacheurMessage<'a> {
             MessageKind::CommandeInterMillegrille => {
                 // [pubkey, estampille, kind, contenu, routage, origine, dechiffrage]
                 if self.routage.is_none() || self.origine.is_none() || self.dechiffrage.is_none() {
-                    error!("HacheurMessage::hacher Routage/origine/dechiffrage requis (None)");
-                    Err("HacheurMessage::hacher:E2")?
+                    error!("HacheurMessage::hacher Routage/origine/dechiffrage requis (routage: {:?}, origine: {:?}, dechiffrage: {:?})",
+                        self.routage, self.origine, self.dechiffrage);
+                    Err(Error::Str("HacheurMessage::hacher:E2"))?
                 }
                 self.hacheur.update(",".as_bytes());
                 self.hacher_routage();
@@ -609,7 +712,7 @@ impl<'a> HacheurMessage<'a> {
 
         match String::from_str(hachage_str) {
             Ok(inner) => Ok(inner),
-            Err(()) => Err("HacheurMessage::hacher:E2")?
+            Err(()) => Err(Error::Str("HacheurMessage::hacher:E2"))?
         }
     }
 
@@ -625,7 +728,7 @@ impl<'a, const C: usize> From<&'a MessageMilleGrillesRef<'a, C>> for HacheurMess
             contenu: value.contenu,
             routage: value.routage.as_ref(),
             origine: value.origine,
-            dechiffrage: value.dechiffrage.as_ref(),
+            dechiffrage: value.dechiffrage.clone(),
         }
     }
 }
@@ -770,19 +873,28 @@ pub type MessageMilleGrillesBuilderDefault<'a> = MessageMilleGrillesBuilder<'a, 
 pub struct MessageMilleGrillesBuilder<'a, const C: usize> {
     estampille: DateTime<Utc>,
     kind: MessageKind,
-    contenu: &'a str,
+    contenu: Cow<'a, str>,
     routage: Option<RoutageMessage<'a>>,
     origine: Option<&'a str>,
-    dechiffrage: Option<DechiffrageInterMillegrille<'a>>,
+    dechiffrage: Option<DechiffrageInterMillegrilleOwned>,
     certificat: Option<Vec<&'a str, C>>,
     millegrille: Option<&'a str>,
+    #[cfg(feature = "alloc")]
+    attachements: Option<HashMap<std::string::String, Value>>,
     signing_key: &'a SigningKey,
 }
 
 impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 
     pub fn new(kind: MessageKind, contenu: &'a str, estampille: DateTime<Utc>, signing_key: &'a SigningKey) -> Self {
-        Self {estampille, kind, contenu, routage: None, origine: None, dechiffrage: None, certificat: None, millegrille: None, signing_key}
+        Self {
+            estampille, kind, contenu: Cow::Borrowed(contenu),
+            routage: None, origine: None,
+            dechiffrage: None,
+            certificat: None,
+            millegrille: None, attachements: None,
+            signing_key
+        }
     }
 
     pub fn routage(mut self, routage: RoutageMessage<'a>) -> Self {
@@ -800,19 +912,35 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         self
     }
 
-    pub fn dechiffrage(mut self, dechiffrage: DechiffrageInterMillegrille<'a>) -> Self {
-        self.dechiffrage = Some(dechiffrage);
-        self
-    }
+    // pub fn dechiffrage(mut self, dechiffrage: DechiffrageInterMillegrille<'a>) -> Self {
+    //     self.dechiffrage = Some(dechiffrage);
+    //     self
+    // }
 
     pub fn millegrille(mut self, millegrille: &'a str) -> Self {
         self.millegrille = Some(millegrille);
         self
     }
 
+    #[cfg(feature = "serde_json")]
+    pub fn ajouter_attachement(mut self, key: std::string::String, value: Value) -> Self {
+        match self.attachements.as_mut() {
+            Some(inner) => {
+                inner.insert(key, value);
+                self
+            },
+            None => {
+                let mut hashmap = HashMap::new();
+                hashmap.insert(key, value);
+                self.attachements = Some(hashmap);
+                self
+            }
+        }
+    }
+
     /// Version std avec un Vec qui supporte alloc. Permet de traiter des messages de grande taille.
     #[cfg(feature = "alloc")]
-    pub fn build_into_alloc<'b>(self, buffer: &'b mut std::vec::Vec<u8>) -> Result<MessageMilleGrillesRef<'b, C>, &'static str> {
+    pub fn build_into_alloc<'b>(self, buffer: &'b mut std::vec::Vec<u8>) -> Result<MessageMilleGrillesRef<'b, C>, Error> {
         // Calculer pubkey
         let verifying_key = self.signing_key.verifying_key();
         let pubkey_bytes = verifying_key.as_bytes();
@@ -823,22 +951,29 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         let message_id = self.generer_id(pubkey_str)?;
         let signature = self.signer(message_id.as_str())?;
 
+        let dechiffrage: Option<DechiffrageInterMillegrille<'_>> = match self.dechiffrage.as_ref() {
+            Some(inner) => {
+                Some(inner.try_into()?)
+            },
+            None => None
+        };
+
         let message_ref: MessageMilleGrillesRef<C> = MessageMilleGrillesRef {
             id: message_id.as_str(),
             pubkey: pubkey_str,
             estampille: self.estampille,
             kind: self.kind,
-            contenu: self.contenu,
+            contenu: self.contenu.as_ref(),
             routage: self.routage,
             #[cfg(feature = "serde_json")]
             pre_migration: None,
             origine: self.origine,
-            dechiffrage: self.dechiffrage,
+            dechiffrage,
             signature: signature.as_str(),
             certificat: self.certificat,
             millegrille: self.millegrille,
             #[cfg(feature = "serde_json")]
-            attachements: None,
+            attachements: self.attachements,
             contenu_valide: None,
         };
 
@@ -847,7 +982,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             Ok(resultat) => resultat,
             Err(e) => {
                 error!("build_into Erreur serde_json::to_string {:?}", e);
-                Err("build_into:E1")?
+                Err(Error::Str("build_into:E1"))?
             }
         };
         debug!("Message serialise\n{:?}", from_utf8(message_vec.as_slice()));
@@ -863,8 +998,39 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         Ok(message_ref)
     }
 
+    #[cfg(feature = "alloc")]
+    pub fn encrypt_into_alloc<P, const K: usize>(mut self, buffer: &mut std::vec::Vec<u8>, mut cipher: P)
+        -> Result<MessageMilleGrillesRef<C>, Error>
+        where P: Cipher<K>
+    {
+        // Prendre le contenu du builder, le compresser et le chiffrer.
+        let resultat_chiffrage = cipher.to_gz_vec(self.contenu.as_bytes())?;
+        let contenu_multibase = multibase::encode(Base::Base64, resultat_chiffrage.ciphertext);
+        self.contenu = Cow::Owned(contenu_multibase);
+
+        let cles: BTreeMap<std::string::String, std::string::String> = resultat_chiffrage.cles.cles_chiffrees
+            .into_iter()
+            .map(|v| (v.fingerprint, v.cle_chiffree))
+            .collect();
+
+        let format_str: &str = resultat_chiffrage.cles.format.into();
+
+        let dechiffrage = DechiffrageInterMillegrilleOwned {
+            cle_id: Some(resultat_chiffrage.hachage_bytes.clone()),
+            cles: Some(cles),
+            format: format_str.to_string(),
+            hachage: Some(resultat_chiffrage.hachage_bytes),
+            header: resultat_chiffrage.cles.nonce.clone(),
+            nonce: resultat_chiffrage.cles.nonce,
+            verification: resultat_chiffrage.cles.verification,
+        };
+        self.dechiffrage = Some(dechiffrage);
+
+        Ok(self.build_into_alloc(buffer)?)
+    }
+
     pub fn build_into<const B: usize>(self, buffer: &'a mut Vec<u8, B>)
-                                      -> Result<MessageMilleGrillesRef<'a, C>, &'static str>
+                                      -> Result<MessageMilleGrillesRef<'a, C>, Error>
     {
         // Calculer pubkey
         let verifying_key = self.signing_key.verifying_key();
@@ -881,17 +1047,17 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             pubkey: pubkey_str,
             estampille: self.estampille,
             kind: self.kind,
-            contenu: self.contenu,
+            contenu: self.contenu.as_ref(),
             routage: self.routage,
             #[cfg(feature = "serde_json")]
             pre_migration: None,
             origine: self.origine,
-            dechiffrage: self.dechiffrage,
+            dechiffrage: None,  // self.dechiffrage,
             signature: signature.as_str(),
             certificat: self.certificat,
             millegrille: self.millegrille,
             #[cfg(feature = "serde_json")]
-            attachements: None,
+            attachements: self.attachements,
             contenu_valide: None,
         };
 
@@ -901,7 +1067,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             Ok(taille) => taille,
             Err(e) => {
                 error!("build_into Erreur serde_json_core::to_slice {:?}", e);
-                Err("build_into:E1")?
+                Err(Error::Str("build_into:E1"))?
             }
         };
         buffer.truncate(taille);  // S'assurer que le Vec a la taille utilisee
@@ -912,13 +1078,14 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         Ok(MessageMilleGrillesRef::parse(from_utf8(buffer).unwrap()).unwrap())
     }
 
-    fn generer_id(&self, pubkey: &str) -> Result<String<64>, &'static str> {
+    #[cfg(feature = "alloc")]
+    fn generer_id(&self, pubkey: &str) -> Result<String<64>, Error> {
         // Escape chars dans le contenu. Le contenu du json-string doit avoir tous
         // les chars escaped. serde_json::to_string va s'en occuper durant la serialisation du
         // contenu.
-        let contenu_escaped = match serde_json::to_string(self.contenu) {
+        let contenu_escaped = match serde_json::to_string(self.contenu.as_ref()) {
             Ok(inner) => inner,
-            Err(_) => Err("generer_id Erreur parse contenu")?
+            Err(_) => Err(Error::Str("generer_id Erreur parse contenu"))?
         };
         // Retirer les guillemets au debut et la fin de la string serialisee.
         let contenu_escape_inner = &contenu_escaped[1..contenu_escaped.len()-1];
@@ -928,16 +1095,22 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         if let Some(routage) = self.routage.as_ref() {
             hacheur = hacheur.routage(routage);
         }
+        if let Some(origine) = self.origine {
+            hacheur = hacheur.origine(origine);
+        }
+        if let Some(dechiffrage) = &self.dechiffrage {
+            hacheur = hacheur.dechiffrage(dechiffrage.try_into()?);
+        }
 
         hacheur.hacher()
     }
 
-    fn signer(&self, id: &str) -> Result<String<128>, &'static str> {
+    fn signer(&self, id: &str) -> Result<String<128>, Error> {
         // Convertir id en bytes
         let mut id_bytes = [0u8; 32] as MessageId;
         if let Err(e) = hex::decode_to_slice(id, &mut id_bytes) {
             error!("Hex error sur id {} : {:?}", id, e);
-            Err("signer:E1")?
+            Err(Error::Str("signer:E1"))?
         }
 
         let mut signature_buffer = [0u8; 128];
@@ -945,7 +1118,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 
         match String::from_str(signature_str) {
             Ok(inner) => Ok(inner),
-            Err(()) => Err("signer:E2")?
+            Err(()) => Err(Error::Str("signer:E2"))?
         }
     }
 }
@@ -956,6 +1129,7 @@ mod messages_structs_tests {
     use super::*;
     use log::info;
     use serde_json::json;
+    use crate::chiffrage_mgs4::CipherMgs4;
 
     const MESSAGE_1: &str = r#"{
       "id": "d49a375c980f1e70cdea697664610d70048899d1428909fdc29bd29cfc9dd1ca",
@@ -1161,6 +1335,51 @@ mod messages_structs_tests {
             assert!(message_ref.verifier_signature().is_ok());
             assert_eq!("03bed2d56baa397dae02c4ffc267f9d71aa1f78f38e64cd03b93461d5c19fc4c", message_ref.id);
             assert_eq!("7bc3079518ed11da0336085bf6962920ff87fb3c4d630a9b58cb6153674f5dd6", message_ref.pubkey);
+            assert_eq!(estampille.timestamp(), message_ref.estampille.timestamp());
+        }
+        debug!("test_build_into_vec Vec buffer :\n{}", from_utf8(buffer.as_slice()).unwrap());
+        buffer.clear();
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test_log::test]
+    fn test_into_owned() {
+        let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
+        buffer.buffer.extend(MESSAGE_1.as_bytes());
+        let parsed = buffer.parse().unwrap();
+
+        let message_id = parsed.id.to_string();
+
+        let message_owned: MessageMilleGrillesOwned = parsed.into();
+        assert_eq!(message_id, message_owned.id);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test_log::test]
+    fn test_encrypt_into_alloc() {
+        let contenu = "{\"contenu\":\"Le contenu a inclure\"}";
+        debug!("Contenu initial\n{}", contenu);
+        let estampille = DateTime::from_timestamp(1710338722, 0).unwrap();
+        let signing_key = SigningKey::from_bytes(b"01234567890123456789012345678901");
+        let routage = RoutageMessage::for_action("Test", "test");
+        let mut certificat: Vec<&str, CONST_NOMBRE_CERTIFICATS_MAX> = Vec::new();
+        certificat.push("CERTIFICAT 1").unwrap();
+        certificat.push("CERTIFICAT 2").unwrap();
+
+        let cipher = CipherMgs4::new().unwrap();
+
+        let generateur = MessageMilleGrillesBuilderDefault::new(
+            MessageKind::CommandeInterMillegrille, contenu, estampille, &signing_key)
+            .routage(routage)
+            .origine("ORIGINE")
+            .certificat(certificat);
+
+        let mut buffer: std::vec::Vec<u8> = std::vec::Vec::new();
+        {
+            // let mut message_ref = generateur.build_into_alloc(&mut buffer).unwrap();
+            let mut message_ref = generateur.encrypt_into_alloc(&mut buffer, cipher).unwrap();
+            debug!("Message ref contenu\n{}", message_ref.contenu);
+            assert!(message_ref.verifier_signature().is_ok());
             assert_eq!(estampille.timestamp(), message_ref.estampille.timestamp());
         }
         debug!("test_build_into_vec Vec buffer :\n{}", from_utf8(buffer.as_slice()).unwrap());

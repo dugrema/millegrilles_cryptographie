@@ -3,7 +3,7 @@ use flate2::write::GzEncoder;
 use flate2::read::GzDecoder;
 use std::io::{Read, Write};
 use multibase::Base;
-use openssl::pkey::{Id, PKey, Private};
+use openssl::pkey::{PKey, Private};
 use serde::{Deserialize, Serialize};
 
 use crate::chiffrage::{CleSecrete, FormatChiffrage};
@@ -238,8 +238,8 @@ mod chiffrage_mgs4_tests {
     #[test_log::test]
     fn test_cle_chiffree() {
         let cle_secrete = CleSecreteMgs4::generer();
-        let private_key = PKey::generate_ed25519().unwrap();
-        let public_key = PKey::public_key_from_raw_bytes(&private_key.raw_public_key().unwrap()[..], Id::ED25519).unwrap();
+        // let private_key = PKey::generate_ed25519().unwrap();
+        // let public_key = PKey::public_key_from_raw_bytes(&private_key.raw_public_key().unwrap()[..], Id::ED25519).unwrap();
 
         let mut cle_chiffrage = CleChiffrageStruct {
             cle_secrete: cle_secrete.clone(),
@@ -300,10 +300,6 @@ mod chiffrage_mgs4_tests {
             nonce: None,
             verification: None,
         };
-
-        let enveloppes = vec![
-            &enveloppe_1.enveloppe_pub
-        ];
 
         // Conserver cle_secrete.public_peer comme value chiffree de la cle
         let fingerprint = enveloppe_1.fingerprint().unwrap();
