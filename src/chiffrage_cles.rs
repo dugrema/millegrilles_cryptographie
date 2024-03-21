@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::chiffrage::{CleSecrete, FormatChiffrage};
 use crate::error::Error;
-use crate::x25519::{chiffrer_asymmetrique_ed25519, convertir_public_ed25519_to_x25519_openssl, dechiffrer_asymmetrique_ed25519};
+use crate::x25519::{chiffrer_asymmetrique_ed25519, dechiffrer_asymmetrique_ed25519};
 use crate::x509::EnveloppeCertificat;
 
 const X25519_KEY_LEN: usize = 32;
@@ -123,17 +123,10 @@ impl CleChiffrageX25519 for CleChiffrageX25519Impl {
     fn chiffrer_x25519(&mut self, cles_publiques: Vec<&EnveloppeCertificat>) -> Result<(), Error> {
         for cle in cles_publiques {
             // Recuperer cle publique Ed25519
-            let pubkey_ed25519 = cle.pubkey()?;
-            if pubkey_ed25519.len() != X25519_KEY_LEN {
-                Err(Error::Str("CleChiffrageX25519Impl::chiffrer_x25519 Taille cle publique incorrecte - doit etre 32 bytes"))?
-            }
-
-            // Convertir en X25519
-            let cle_ed25519_openssl = PKey::public_key_from_raw_bytes(pubkey_ed25519.as_slice(), Id::ED25519)?;
-            let cle_x25519_openssl = convertir_public_ed25519_to_x25519_openssl(&cle_ed25519_openssl)?;
+            let cle_ed25519_openssl = cle.certificat.public_key()?;
 
             // Chiffrer la cle secrete
-            let secret_chiffre = chiffrer_asymmetrique_ed25519(&self.cle_secrete.0, &cle_x25519_openssl)?;
+            let secret_chiffre = chiffrer_asymmetrique_ed25519(&self.cle_secrete.0, &cle_ed25519_openssl)?;
 
             // Encoder en multibase base64
             let secret_chiffre_string = multibase::encode(Base::Base64, &secret_chiffre);
@@ -231,4 +224,112 @@ pub trait Decipher {
         decoder.read_to_end(&mut data_decompresse)?;
         Ok(data_decompresse)
     }
+}
+
+#[cfg(test)]
+mod chiffrage_mgs4_tests {
+    use log::info;
+    use std::path::PathBuf;
+    use crate::chiffrage::CleSecreteMgs4;
+    use crate::x25519::deriver_asymetrique_ed25519;
+    use crate::x509::EnveloppePrivee;
+    use super::*;
+
+    #[test_log::test]
+    fn test_cle_chiffree() {
+        let cle_secrete = CleSecreteMgs4::generer();
+        let private_key = PKey::generate_ed25519().unwrap();
+        let public_key = PKey::public_key_from_raw_bytes(&private_key.raw_public_key().unwrap()[..], Id::ED25519).unwrap();
+
+        let mut cle_chiffrage = CleChiffrageStruct {
+            cle_secrete: cle_secrete.clone(),
+            cles_chiffrees: std::vec::Vec::new(),
+            format: FormatChiffrage::MGS4,
+            nonce: None,
+            verification: None,
+        };
+
+        let enveloppe_1 = EnveloppePrivee::from_files(
+            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert"),
+            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cle"),
+            &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")
+        ).unwrap();
+
+        let enveloppes = vec![
+            &enveloppe_1.enveloppe_pub
+        ];
+
+        cle_chiffrage.chiffrer_x25519(enveloppes).unwrap();
+
+        info!("Cles chiffrees : {:?}", cle_chiffrage.cles_chiffrees);
+
+        // Dechiffrer la cle secrete
+        let fingerprint = enveloppe_1.fingerprint().unwrap();
+        let cle_chiffree: Vec<&FingerprintCleChiffree> = cle_chiffrage.cles_chiffrees.iter()
+            .filter(|c| c.fingerprint == fingerprint)
+            .collect();
+
+        let mut cle_dechiffrage = CleDechiffrageStruct::<32> {
+            cle_chiffree: cle_chiffree.iter().next().unwrap().cle_chiffree.clone(),
+            cle_secrete: None,
+            format: FormatChiffrage::MGS4,
+            nonce: None,
+            verification: None,
+        };
+
+        cle_dechiffrage.dechiffrer_x25519(&enveloppe_1.cle_privee).unwrap();
+        let cle_secrete_dechifree = cle_dechiffrage.cle_secrete.unwrap();
+        assert!(cle_secrete == cle_secrete_dechifree);
+    }
+
+    #[test_log::test]
+    fn test_cle_derivee() {
+        let enveloppe_1 = EnveloppePrivee::from_files(
+            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert"),
+            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cle"),
+            &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")
+        ).unwrap();
+
+        let cle_secrete = deriver_asymetrique_ed25519(
+            &enveloppe_1.enveloppe_pub.certificat.public_key().unwrap()).unwrap();
+
+        let mut cle_chiffrage = CleChiffrageStruct {
+            cle_secrete: cle_secrete.secret.clone(),
+            cles_chiffrees: std::vec::Vec::new(),
+            format: FormatChiffrage::MGS4,
+            nonce: None,
+            verification: None,
+        };
+
+        let enveloppes = vec![
+            &enveloppe_1.enveloppe_pub
+        ];
+
+        // Conserver cle_secrete.public_peer comme value chiffree de la cle
+        let fingerprint = enveloppe_1.fingerprint().unwrap();
+        cle_chiffrage.cles_chiffrees.push(FingerprintCleChiffree {
+            fingerprint: fingerprint.clone(),
+            cle_chiffree: multibase::encode(Base::Base64, cle_secrete.public_peer)
+        });
+
+        info!("Cles chiffrees : {:?}", cle_chiffrage.cles_chiffrees);
+
+        // Dechiffrer la cle secrete
+        let cle_chiffree: Vec<&FingerprintCleChiffree> = cle_chiffrage.cles_chiffrees.iter()
+            .filter(|c| c.fingerprint == fingerprint)
+            .collect();
+
+        let mut cle_dechiffrage = CleDechiffrageStruct::<32> {
+            cle_chiffree: cle_chiffree.iter().next().unwrap().cle_chiffree.clone(),
+            cle_secrete: None,
+            format: FormatChiffrage::MGS4,
+            nonce: None,
+            verification: None,
+        };
+
+        cle_dechiffrage.dechiffrer_x25519(&enveloppe_1.cle_privee).unwrap();
+        let cle_secrete_dechifree = cle_dechiffrage.cle_secrete.unwrap();
+        assert!(cle_secrete.secret == cle_secrete_dechifree);
+    }
+
 }
