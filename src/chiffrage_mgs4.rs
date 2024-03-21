@@ -9,7 +9,7 @@ use log::debug;
 use multibase::{Base, encode};
 use crate::chiffrage::{CleSecrete, FormatChiffrage};
 
-use crate::chiffrage_cles::{CleChiffrageStruct, CleChiffrageX25519Impl, CleDechiffrageX25519Impl, FingerprintCleChiffree};
+use crate::chiffrage_cles::{Cipher, CipherResult, CleChiffrageStruct, CleChiffrageX25519Impl, CleDechiffrageX25519Impl, Decipher, FingerprintCleChiffree};
 use crate::error::Error;
 use crate::hachages::{HacheurBlake2b512, HacheurInterne, HachageMultihash};
 use crate::x25519::{CleDerivee, CleSecreteX25519, deriver_asymetrique_ed25519};
@@ -39,7 +39,6 @@ pub struct CipherMgs4 {
 }
 
 impl CipherMgs4 {
-
     pub fn new() -> Result<Self, Error> {
         // Generer une cle secrete
         let cle_secrete = CleSecrete::generer();
@@ -53,7 +52,7 @@ impl CipherMgs4 {
             state,
             header: encode(Base::Base64, header),
             hacheur: HacheurBlake2b512::new(),
-            buffer: [0u8; CONST_TAILLE_BLOCK_MGS4-CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+            buffer: [0u8; CONST_TAILLE_BLOCK_MGS4 - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
             position_buffer: 0,
             cle_secrete: CleSecreteCipher::CleSecrete(cle_secrete)
         })
@@ -63,7 +62,7 @@ impl CipherMgs4 {
         where C: AsRef<EnveloppeCertificat>
     {
         let ca = ca.as_ref();
-        if ! ca.est_ca()? {
+        if !ca.est_ca()? {
             Err(Error::Str("Le certificat n'est pas CA"))?
         }
 
@@ -79,7 +78,7 @@ impl CipherMgs4 {
             state,
             header: encode(Base::Base64, header),
             hacheur: HacheurBlake2b512::new(),
-            buffer: [0u8; CONST_TAILLE_BLOCK_MGS4-CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+            buffer: [0u8; CONST_TAILLE_BLOCK_MGS4 - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
             position_buffer: 0,
             cle_secrete: CleSecreteCipher::CleDerivee((ca.fingerprint()?, cle_derivee))
         })
@@ -99,13 +98,16 @@ impl CipherMgs4 {
             state,
             header: encode(Base::Base64, header),
             hacheur: HacheurBlake2b512::new(),
-            buffer: [0u8; CONST_TAILLE_BLOCK_MGS4-CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+            buffer: [0u8; CONST_TAILLE_BLOCK_MGS4 - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
             position_buffer: 0,
             cle_secrete: CleSecreteCipher::CleSecrete(cle_secrete)
         })
     }
+}
 
-    pub fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error> {
+impl Cipher<32> for CipherMgs4 {
+
+    fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error> {
         let mut position_data: usize = 0;
         let mut position_output: usize = 0;
 
@@ -144,7 +146,7 @@ impl CipherMgs4 {
         Ok(position_output)
     }
 
-    pub fn finalize(mut self, out: &mut [u8]) -> Result<ResultatChiffrage, Error> {
+    fn finalize(mut self, out: &mut [u8]) -> Result<CipherResult<32>, Error> {
         let taille_output = self.position_buffer + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
         let slice_output = &mut out[..taille_output];
 
@@ -173,7 +175,7 @@ impl CipherMgs4 {
             }
         };
 
-        let cle = CleChiffrageStruct {
+        let cles = CleChiffrageStruct {
             cle_secrete,
             cles_chiffrees,
             format: FormatChiffrage::MGS4,
@@ -181,7 +183,11 @@ impl CipherMgs4 {
             verification: None,
         };
 
-        Ok(ResultatChiffrage { cle, taille: taille_output, hachage_bytes })
+        Ok(CipherResult {
+            len: taille_output,
+            cles,
+            hachage_bytes
+        })
     }
 
 }
@@ -195,13 +201,12 @@ pub struct DecipherMgs4 {
 
 impl DecipherMgs4 {
     pub fn new(decipher_data: &CleDechiffrageX25519Impl) -> Result<Self, Error> {
-
         let cle_dechiffree = match &decipher_data.cle_secrete {
             Some(inner) => inner,
             None => Err(Error::Str("Cle secrete manquante"))?
         };
 
-        let header_vec = match &decipher_data.verification {
+        let header_vec = match &decipher_data.nonce {
             Some(inner) => match multibase::decode(inner) {
                 Ok(inner) => inner.1,
                 Err(e) => Err(Error::Multibase(e))?
@@ -217,8 +222,11 @@ impl DecipherMgs4 {
 
         Ok(DecipherMgs4 { state, header, buffer: [0u8; CONST_TAILLE_BLOCK_MGS4], position_buffer: 0 })
     }
+}
 
-    pub fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error> {
+impl Decipher for DecipherMgs4 {
+
+    fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error> {
 
         let mut position_data: usize = 0;
         let mut position_output: usize = 0;
@@ -257,7 +265,7 @@ impl DecipherMgs4 {
         Ok(position_output)
     }
 
-    pub fn finalize(mut self, out: &mut [u8]) -> Result<usize, Error> {
+    fn finalize(mut self, out: &mut [u8]) -> Result<usize, Error> {
 
         if self.position_buffer < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
             Err(Error::Str("DecipherMgs4.finalize Erreur block final < 17 bytes"))?
@@ -268,7 +276,7 @@ impl DecipherMgs4 {
         let mut output_tag = 0u8;
 
         let ciphertext = &self.buffer[0..self.position_buffer];
-        debug!("Finalize dechiffrage de ciphertext {:?}", ciphertext);
+        debug!("DecipherMgs4.finalize dechiffrage de ciphertext {:?}", ciphertext);
 
         // Dechiffrer
         let _taille_finale = crypto_secretstream_xchacha20poly1305_pull(
@@ -280,4 +288,68 @@ impl DecipherMgs4 {
 
         Ok(taille_output)
     }
+}
+
+#[cfg(test)]
+mod chiffrage_mgs4_tests {
+    use std::str::from_utf8;
+    use super::*;
+    use log::info;
+    use serde_json::json;
+    use x509_parser::nom::AsBytes;
+    use crate::chiffrage_cles::CleDechiffrageStruct;
+    use crate::messages_structs::{MessageKind, MessageMilleGrillesRefDefault};
+
+    const CONTENU_A_CHIFFRER: &str = "Du contenu a chiffrer";
+
+    #[test_log::test]
+    fn test_chiffrer_dechiffrer() {
+        let mut cipher = CipherMgs4::new().unwrap();
+
+        //let mut output = [0u8; 100];
+        let mut ciphertext = std::vec::Vec::new();
+        // Taille pour mgs4 : 17 bytes par block de 64kb (0.0003) + 17 bytes
+        let taille_reserver = (CONTENU_A_CHIFFRER.len() as f64 * 1.0003 + 17f64) as usize;
+        info!("Taille reserver : {}", taille_reserver);
+        ciphertext.reserve(taille_reserver);
+        ciphertext.extend(std::iter::repeat(1u8).take(taille_reserver));
+
+        let taille = cipher.update(CONTENU_A_CHIFFRER.as_bytes(), ciphertext.as_mut_slice()).unwrap();
+        let resultat = cipher.finalize(&mut ciphertext.as_mut_slice()[taille..]).unwrap();
+
+        let taille_totale = taille + resultat.len;
+        ciphertext.truncate(taille_totale);
+
+        info!("Taille chiffrage {} + {}", taille, resultat.len);
+        assert_eq!(38, ciphertext.len());
+        info!("Ciphertext \n{}", encode(Base::Base64, &ciphertext));
+
+        let cle_dechiffrage = CleDechiffrageStruct {
+            cle_chiffree: "NA".to_string(),
+            cle_secrete: Some(resultat.cles.cle_secrete),
+            format: resultat.cles.format,
+            nonce: resultat.cles.nonce,
+            verification: None,
+        };
+
+        // Dechiffrer
+        let mut decipher = DecipherMgs4::new(&cle_dechiffrage).unwrap();
+        let mut output_decipher = std::vec::Vec::new();
+        output_decipher.reserve(ciphertext.len());
+        output_decipher.extend(std::iter::repeat(1u8).take(ciphertext.len()));
+
+        let cleartext_len = decipher.update(ciphertext.as_slice(), output_decipher.as_mut()).unwrap();
+        let decipher_finalize_len = decipher.finalize(&mut output_decipher.as_mut_slice()[cleartext_len..]).unwrap();
+
+        let taille_decipher_totale = cleartext_len + decipher_finalize_len;
+        output_decipher.truncate(taille_decipher_totale);
+
+        let output_decipher_str = from_utf8(&output_decipher).unwrap();
+
+        info!("Decipher len {} + {}, contenu\n{}", cleartext_len, decipher_finalize_len, output_decipher_str);
+
+        assert_eq!(CONTENU_A_CHIFFRER.len(), output_decipher.len());
+    }
+
+
 }

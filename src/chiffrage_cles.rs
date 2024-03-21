@@ -88,9 +88,9 @@ trait CleChiffrageX25519: CleChiffrage {
 }
 
 /// Utilise pour chiffrer une cle secrete avec une ou plusieurs cles publiques (asymetrique).
-pub struct CleChiffrageStruct<const C: usize> {
+pub struct CleChiffrageStruct<const K: usize> {
     /// Cle secrete dechiffree.
-    pub cle_secrete: CleSecrete<C>,
+    pub cle_secrete: CleSecrete<K>,
 
     /// Cle chiffree encodee en multibase.
     pub cles_chiffrees: Vec<FingerprintCleChiffree>,
@@ -140,4 +140,22 @@ impl CleChiffrageX25519 for CleChiffrageX25519Impl {
         }
         Ok(())
     }
+}
+
+pub struct CipherResult<const K: usize> {
+    pub len: usize,
+    pub cles: CleChiffrageStruct<K>,
+    pub hachage_bytes: String,
+}
+
+pub trait Cipher<const K: usize> {
+    fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error>;
+
+    fn finalize(self, out: &mut [u8]) -> Result<CipherResult<K>, Error>;
+}
+
+pub trait Decipher {
+    fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error>;
+
+    fn finalize(self, out: &mut [u8]) -> Result<usize, Error>;
 }
