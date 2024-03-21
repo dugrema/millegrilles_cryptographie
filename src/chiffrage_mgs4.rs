@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::io::Read;
 use dryoc::classic::crypto_secretstream_xchacha20poly1305::*;
 use dryoc::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
@@ -8,8 +7,6 @@ use dryoc::constants::{
 };
 use log::debug;
 use multibase::{Base, encode};
-use flate2::Compression;
-use flate2::write::{GzEncoder, GzDecoder};
 
 use crate::chiffrage::{CleSecrete, FormatChiffrage};
 use crate::chiffrage_cles::{Cipher, CipherResult, CleChiffrageStruct, CleChiffrageX25519Impl, CleDechiffrageX25519Impl, Decipher, FingerprintCleChiffree};
@@ -20,7 +17,7 @@ use crate::x509::EnveloppeCertificat;
 
 const CONST_TAILLE_BLOCK_MGS4: usize = 64 * 1024;
 
-enum CleSecreteCipher {
+pub enum CleSecreteCipher {
     CleDerivee((String, CleDerivee)),   // Fingerprint, CleDerivee
     CleSecrete(CleSecreteX25519)        // Cle secrete
 }
@@ -43,22 +40,10 @@ pub struct CipherMgs4 {
 
 impl CipherMgs4 {
     pub fn new() -> Result<Self, Error> {
-        // Generer une cle secrete
+        // Generer une nouvelle cle secrete
         let cle_secrete = CleSecrete::generer();
 
-        let mut state = State::new();
-        let mut header = Header::default();
-        let key = Key::from(cle_secrete.0);
-        crypto_secretstream_xchacha20poly1305_init_push(&mut state, &mut header, &key);
-
-        Ok(Self {
-            state,
-            header: encode(Base::Base64, header),
-            hacheur: HacheurBlake2b512::new(),
-            buffer: [0u8; CONST_TAILLE_BLOCK_MGS4 - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
-            position_buffer: 0,
-            cle_secrete: CleSecreteCipher::CleSecrete(cle_secrete)
-        })
+        Self::with_secret(CleSecreteCipher::CleSecrete(cle_secrete))
     }
 
     pub fn with_ca<C>(ca: C) -> Result<Self, Error>
@@ -72,25 +57,14 @@ impl CipherMgs4 {
         // Generer une cle secrete
         let cle_derivee = deriver_asymetrique_ed25519(&ca.certificat.public_key()?)?;
 
-        let mut state = State::new();
-        let mut header = Header::default();
-        let key = Key::from(cle_derivee.secret.0);
-        crypto_secretstream_xchacha20poly1305_init_push(&mut state, &mut header, &key);
-
-        Ok(Self {
-            state,
-            header: encode(Base::Base64, header),
-            hacheur: HacheurBlake2b512::new(),
-            buffer: [0u8; CONST_TAILLE_BLOCK_MGS4 - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
-            position_buffer: 0,
-            cle_secrete: CleSecreteCipher::CleDerivee((ca.fingerprint()?, cle_derivee))
-        })
+        Self::with_secret(CleSecreteCipher::CleDerivee((ca.fingerprint()?, cle_derivee)))
     }
 
-    pub fn with_secret<C>(cle_secrete: C) -> Result<Self, Error>
-        where C: Into<CleSecreteX25519>
-    {
-        let cle_secrete = cle_secrete.into();
+    pub fn with_secret(cle: CleSecreteCipher) -> Result<Self, Error> {
+        let cle_secrete = match &cle {
+            CleSecreteCipher::CleDerivee((_, cle)) => &cle.secret,
+            CleSecreteCipher::CleSecrete(cle) => cle
+        };
 
         let mut state = State::new();
         let mut header = Header::default();
@@ -103,7 +77,7 @@ impl CipherMgs4 {
             hacheur: HacheurBlake2b512::new(),
             buffer: [0u8; CONST_TAILLE_BLOCK_MGS4 - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
             position_buffer: 0,
-            cle_secrete: CleSecreteCipher::CleSecrete(cle_secrete)
+            cle_secrete: cle
         })
     }
 }
@@ -197,7 +171,7 @@ impl Cipher<32> for CipherMgs4 {
 
 pub struct DecipherMgs4 {
     state: State,
-    header: [u8; 24],
+    // header: [u8; 24],
     buffer: [u8; CONST_TAILLE_BLOCK_MGS4],
     position_buffer: usize,
 }
@@ -223,7 +197,7 @@ impl DecipherMgs4 {
         header.copy_from_slice(&header_vec[0..24]);
         crypto_secretstream_xchacha20poly1305_init_pull(&mut state, &header, &key);
 
-        Ok(DecipherMgs4 { state, header, buffer: [0u8; CONST_TAILLE_BLOCK_MGS4], position_buffer: 0 })
+        Ok(DecipherMgs4 { state, buffer: [0u8; CONST_TAILLE_BLOCK_MGS4], position_buffer: 0 })
     }
 }
 
@@ -295,22 +269,17 @@ impl Decipher for DecipherMgs4 {
 
 #[cfg(test)]
 mod chiffrage_mgs4_tests {
-    use std::io::Write;
     use std::str::from_utf8;
-    use flate2::read::GzDecoder;
     use super::*;
     use log::info;
-    use serde_json::json;
-    use x509_parser::nom::AsBytes;
     use crate::chiffrage_cles::CleDechiffrageStruct;
-    use crate::messages_structs::{MessageKind, MessageMilleGrillesRefDefault};
 
     const CONTENU_A_CHIFFRER: &str = "Du contenu a chiffrer";
 
     #[test_log::test]
     fn test_chiffrer_dechiffrer() {
         // Chiffrer
-        let mut cipher = CipherMgs4::new().unwrap();
+        let cipher = CipherMgs4::new().unwrap();
         let chiffre = cipher.to_vec(CONTENU_A_CHIFFRER.as_bytes()).unwrap();
         info!("Ciphertext taille {}\n{}", chiffre.ciphertext.len(), encode(Base::Base64, &chiffre.ciphertext));
 
@@ -326,7 +295,7 @@ mod chiffrage_mgs4_tests {
 
         // Dechiffrer
         let ciphertext = chiffre.ciphertext;
-        let mut decipher = DecipherMgs4::new(&cle_dechiffrage).unwrap();
+        let decipher = DecipherMgs4::new(&cle_dechiffrage).unwrap();
         let dechiffre = decipher.to_vec(ciphertext.as_slice()).unwrap();
 
         let output_decipher_str = from_utf8(dechiffre.as_slice()).unwrap();
@@ -336,7 +305,7 @@ mod chiffrage_mgs4_tests {
 
     #[test_log::test]
     fn test_chiffrer_dechiffrer_gz() {
-        let mut cipher = CipherMgs4::new().unwrap();
+        let cipher = CipherMgs4::new().unwrap();
         let chiffre = cipher.to_gz_vec(CONTENU_A_CHIFFRER.as_bytes()).unwrap();
         info!("Ciphertext taille {}\n{}", chiffre.ciphertext.len(), encode(Base::Base64, &chiffre.ciphertext));
 
@@ -352,7 +321,7 @@ mod chiffrage_mgs4_tests {
 
         // Dechiffrer
         let ciphertext = chiffre.ciphertext;
-        let mut decipher = DecipherMgs4::new(&cle_dechiffrage).unwrap();
+        let decipher = DecipherMgs4::new(&cle_dechiffrage).unwrap();
         let dechiffre = decipher.gz_to_vec(ciphertext.as_slice()).unwrap();
 
         let output_decipher_str = from_utf8(dechiffre.as_slice()).unwrap();

@@ -2,7 +2,6 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use flate2::read::GzDecoder;
 use std::io::{Read, Write};
-use log::{debug, info};
 use multibase::Base;
 use openssl::pkey::{Id, PKey, Private};
 use serde::{Deserialize, Serialize};
@@ -188,7 +187,7 @@ pub trait Cipher<const K: usize> {
     }
 
     /// Compresse le data avec Gzip avant de chiffrer.
-    fn to_gz_vec(mut self, data: &[u8]) -> Result<CipherResultVec<K>, Error>
+    fn to_gz_vec(self, data: &[u8]) -> Result<CipherResultVec<K>, Error>
         where Self: Sized
     {
         // Compresser bytes
@@ -223,7 +222,7 @@ pub trait Decipher {
         Ok(output_decipher)
     }
 
-    fn gz_to_vec(mut self, data: &[u8]) -> Result<Vec<u8>, Error>
+    fn gz_to_vec(self, data: &[u8]) -> Result<Vec<u8>, Error>
         where Self: Sized
     {
         let vec_dechiffre = self.to_vec(data)?;
