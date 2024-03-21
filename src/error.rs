@@ -22,6 +22,8 @@ pub enum Error {
     Dryoc(dryoc::Error),
     SerdeJson(serde_json::Error),
     #[cfg(feature = "std")]
+    Io(std::io::Error),
+    #[cfg(feature = "std")]
     String(String),
     Str(&'static str),
 }
@@ -75,6 +77,14 @@ impl From<serde_json::Error> for Error {
         Error::SerdeJson(value)
     }
 }
+
+#[cfg(feature = "std")]
+impl From<std::io::Error> for Error {
+    fn from(value: std::io::Error) -> Self {
+        Error::Io(value)
+    }
+}
+
 
 impl From<std::string::String> for Error {
     fn from(value: std::string::String) -> Self {

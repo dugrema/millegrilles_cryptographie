@@ -1,4 +1,5 @@
 use std::cmp::min;
+use std::io::Read;
 use dryoc::classic::crypto_secretstream_xchacha20poly1305::*;
 use dryoc::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
@@ -7,8 +8,10 @@ use dryoc::constants::{
 };
 use log::debug;
 use multibase::{Base, encode};
-use crate::chiffrage::{CleSecrete, FormatChiffrage};
+use flate2::Compression;
+use flate2::write::{GzEncoder, GzDecoder};
 
+use crate::chiffrage::{CleSecrete, FormatChiffrage};
 use crate::chiffrage_cles::{Cipher, CipherResult, CleChiffrageStruct, CleChiffrageX25519Impl, CleDechiffrageX25519Impl, Decipher, FingerprintCleChiffree};
 use crate::error::Error;
 use crate::hachages::{HacheurBlake2b512, HacheurInterne, HachageMultihash};
@@ -292,7 +295,9 @@ impl Decipher for DecipherMgs4 {
 
 #[cfg(test)]
 mod chiffrage_mgs4_tests {
+    use std::io::Write;
     use std::str::from_utf8;
+    use flate2::read::GzDecoder;
     use super::*;
     use log::info;
     use serde_json::json;
@@ -304,52 +309,55 @@ mod chiffrage_mgs4_tests {
 
     #[test_log::test]
     fn test_chiffrer_dechiffrer() {
+        // Chiffrer
         let mut cipher = CipherMgs4::new().unwrap();
+        let chiffre = cipher.to_vec(CONTENU_A_CHIFFRER.as_bytes()).unwrap();
+        info!("Ciphertext taille {}\n{}", chiffre.ciphertext.len(), encode(Base::Base64, &chiffre.ciphertext));
 
-        //let mut output = [0u8; 100];
-        let mut ciphertext = std::vec::Vec::new();
-        // Taille pour mgs4 : 17 bytes par block de 64kb (0.0003) + 17 bytes
-        let taille_reserver = (CONTENU_A_CHIFFRER.len() as f64 * 1.0003 + 17f64) as usize;
-        info!("Taille reserver : {}", taille_reserver);
-        ciphertext.reserve(taille_reserver);
-        ciphertext.extend(std::iter::repeat(1u8).take(taille_reserver));
-
-        let taille = cipher.update(CONTENU_A_CHIFFRER.as_bytes(), ciphertext.as_mut_slice()).unwrap();
-        let resultat = cipher.finalize(&mut ciphertext.as_mut_slice()[taille..]).unwrap();
-
-        let taille_totale = taille + resultat.len;
-        ciphertext.truncate(taille_totale);
-
-        info!("Taille chiffrage {} + {}", taille, resultat.len);
-        assert_eq!(38, ciphertext.len());
-        info!("Ciphertext \n{}", encode(Base::Base64, &ciphertext));
-
+        // Convertir le result en cle de dechiffrage
+        let cle_chiffrage = chiffre.cles;
         let cle_dechiffrage = CleDechiffrageStruct {
             cle_chiffree: "NA".to_string(),
-            cle_secrete: Some(resultat.cles.cle_secrete),
-            format: resultat.cles.format,
-            nonce: resultat.cles.nonce,
+            cle_secrete: Some(cle_chiffrage.cle_secrete),
+            format: cle_chiffrage.format,
+            nonce: cle_chiffrage.nonce,
             verification: None,
         };
 
         // Dechiffrer
+        let ciphertext = chiffre.ciphertext;
         let mut decipher = DecipherMgs4::new(&cle_dechiffrage).unwrap();
-        let mut output_decipher = std::vec::Vec::new();
-        output_decipher.reserve(ciphertext.len());
-        output_decipher.extend(std::iter::repeat(1u8).take(ciphertext.len()));
+        let dechiffre = decipher.to_vec(ciphertext.as_slice()).unwrap();
 
-        let cleartext_len = decipher.update(ciphertext.as_slice(), output_decipher.as_mut()).unwrap();
-        let decipher_finalize_len = decipher.finalize(&mut output_decipher.as_mut_slice()[cleartext_len..]).unwrap();
-
-        let taille_decipher_totale = cleartext_len + decipher_finalize_len;
-        output_decipher.truncate(taille_decipher_totale);
-
-        let output_decipher_str = from_utf8(&output_decipher).unwrap();
-
-        info!("Decipher len {} + {}, contenu\n{}", cleartext_len, decipher_finalize_len, output_decipher_str);
-
-        assert_eq!(CONTENU_A_CHIFFRER.len(), output_decipher.len());
+        let output_decipher_str = from_utf8(dechiffre.as_slice()).unwrap();
+        info!("Decipher len {}, contenu\n{}", dechiffre.len(), output_decipher_str);
+        assert_eq!(CONTENU_A_CHIFFRER.len(), dechiffre.len());
     }
 
+    #[test_log::test]
+    fn test_chiffrer_dechiffrer_gz() {
+        let mut cipher = CipherMgs4::new().unwrap();
+        let chiffre = cipher.to_gz_vec(CONTENU_A_CHIFFRER.as_bytes()).unwrap();
+        info!("Ciphertext taille {}\n{}", chiffre.ciphertext.len(), encode(Base::Base64, &chiffre.ciphertext));
+
+        // Convertir le result en cle de dechiffrage
+        let cle_chiffrage = chiffre.cles;
+        let cle_dechiffrage = CleDechiffrageStruct {
+            cle_chiffree: "NA".to_string(),
+            cle_secrete: Some(cle_chiffrage.cle_secrete),
+            format: cle_chiffrage.format,
+            nonce: cle_chiffrage.nonce,
+            verification: None,
+        };
+
+        // Dechiffrer
+        let ciphertext = chiffre.ciphertext;
+        let mut decipher = DecipherMgs4::new(&cle_dechiffrage).unwrap();
+        let dechiffre = decipher.gz_to_vec(ciphertext.as_slice()).unwrap();
+
+        let output_decipher_str = from_utf8(dechiffre.as_slice()).unwrap();
+        info!("Decipher len {}, contenu\n{}", dechiffre.len(), output_decipher_str);
+        assert_eq!(CONTENU_A_CHIFFRER.len(), dechiffre.len());
+    }
 
 }

@@ -1,3 +1,8 @@
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use flate2::read::GzDecoder;
+use std::io::{Read, Write};
+use log::{debug, info};
 use multibase::Base;
 use openssl::pkey::{Id, PKey, Private};
 use serde::{Deserialize, Serialize};
@@ -148,14 +153,83 @@ pub struct CipherResult<const K: usize> {
     pub hachage_bytes: String,
 }
 
+pub struct CipherResultVec<const K: usize> {
+    pub ciphertext: std::vec::Vec<u8>,
+    pub cles: CleChiffrageStruct<K>,
+    pub hachage_bytes: String,
+}
+
 pub trait Cipher<const K: usize> {
     fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error>;
 
     fn finalize(self, out: &mut [u8]) -> Result<CipherResult<K>, Error>;
+
+    /// Chiffre le data.
+    fn to_vec(mut self, data: &[u8]) -> Result<CipherResultVec<K>, Error>
+        where Self: Sized
+    {
+        let mut ciphertext = std::vec::Vec::new();
+
+        // Taille pour mgs4 : 17 bytes par block de 64kb (0.0003) + 17 bytes
+        let taille_reserver = (data.len() as f64 * 1.0003 + 17f64) as usize;
+        ciphertext.reserve(taille_reserver);
+        ciphertext.extend(std::iter::repeat(0u8).take(taille_reserver));
+
+        let taille = self.update(data, ciphertext.as_mut_slice())?;
+        let resultat = self.finalize(&mut ciphertext.as_mut_slice()[taille..])?;
+        let taille_totale = taille + resultat.len;
+        ciphertext.truncate(taille_totale);
+
+        Ok(CipherResultVec {
+            ciphertext,
+            cles: resultat.cles,
+            hachage_bytes: resultat.hachage_bytes
+        })
+    }
+
+    /// Compresse le data avec Gzip avant de chiffrer.
+    fn to_gz_vec(mut self, data: &[u8]) -> Result<CipherResultVec<K>, Error>
+        where Self: Sized
+    {
+        // Compresser bytes
+        let data_vec = {
+            let mut compressor = GzEncoder::new(std::vec::Vec::new(), Compression::default());
+            compressor.write_all(data)?;
+            compressor.finish()?
+        };
+
+        self.to_vec(data_vec.as_slice())
+    }
 }
 
 pub trait Decipher {
     fn update(&mut self, data: &[u8], out: &mut [u8]) -> Result<usize, Error>;
 
     fn finalize(self, out: &mut [u8]) -> Result<usize, Error>;
+
+    fn to_vec(mut self, data: &[u8]) -> Result<Vec<u8>, Error>
+        where Self: Sized
+    {
+        let mut output_decipher = std::vec::Vec::new();
+        output_decipher.reserve(data.len());
+        output_decipher.extend(std::iter::repeat(1u8).take(data.len()));
+
+        let cleartext_len = self.update(data, output_decipher.as_mut()).unwrap();
+        let decipher_finalize_len = self.finalize(&mut output_decipher.as_mut_slice()[cleartext_len..]).unwrap();
+
+        let taille_decipher_totale = cleartext_len + decipher_finalize_len;
+        output_decipher.truncate(taille_decipher_totale);
+
+        Ok(output_decipher)
+    }
+
+    fn gz_to_vec(mut self, data: &[u8]) -> Result<Vec<u8>, Error>
+        where Self: Sized
+    {
+        let vec_dechiffre = self.to_vec(data)?;
+        let mut decoder = GzDecoder::new(vec_dechiffre.as_slice());
+        let mut data_decompresse = Vec::new();
+        decoder.read_to_end(&mut data_decompresse)?;
+        Ok(data_decompresse)
+    }
 }
