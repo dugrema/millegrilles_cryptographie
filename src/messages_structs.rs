@@ -9,6 +9,8 @@ use heapless::{Vec, FnvIndexMap, String};
 use log::{debug, error};
 use multibase::Base;
 use serde_json::Value;
+use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
+
 use crate::chiffrage_cles::{Cipher, CleChiffrageX25519};
 use crate::ed25519::{MessageId, signer_into, verifier};
 use crate::error::Error;
@@ -1017,8 +1019,8 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             resultat_chiffrage.cles.chiffrer_x25519(cles_chiffrage.to_owned())?;
         }
 
-        let contenu_multibase = multibase::encode(Base::Base64, resultat_chiffrage.ciphertext);
-        self.contenu = Cow::Owned(contenu_multibase);
+        let contenu_base64 = base64_nopad.encode(resultat_chiffrage.ciphertext);
+        self.contenu = Cow::Owned(contenu_base64);
 
         let cles: BTreeMap<std::string::String, std::string::String> = resultat_chiffrage.cles.cles_chiffrees
             .into_iter()
