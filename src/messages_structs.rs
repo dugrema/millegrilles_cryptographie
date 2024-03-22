@@ -14,7 +14,7 @@ use crate::chiffrage_cles::{Cipher, CleChiffrageX25519};
 use crate::ed25519::{MessageId, signer_into, verifier};
 use crate::error::Error;
 use crate::hachages::{HacheurInterne, HacheurBlake2s256};
-use crate::x509::EnveloppeCertificat;
+use crate::x509::{EnveloppeCertificat, EnveloppePrivee};
 
 pub const CONST_NOMBRE_CERTIFICATS_MAX: usize = 4;
 const CONST_NOMBRE_CLES_MAX: usize = 8;
@@ -58,7 +58,6 @@ pub struct DechiffrageInterMillegrille<'a> {
 
 impl<'a> Into<DechiffrageInterMillegrilleOwned> for &DechiffrageInterMillegrille<'a> {
     fn into(self) -> DechiffrageInterMillegrilleOwned {
-
         let cles = match self.cles.as_ref() {
             Some(inner) => {
                 let mut cles = BTreeMap::new();
@@ -514,10 +513,10 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         Ok(message_parsed)
     }
 
-    pub fn builder(kind: MessageKind, contenu: &'a str, estampille: DateTime<Utc>, signing_key: &'a SigningKey)
+    pub fn builder(kind: MessageKind, contenu: &'a str)
         -> MessageMilleGrillesBuilder<'a, C>
     {
-        MessageMilleGrillesBuilder::new(kind, contenu, estampille, signing_key)
+        MessageMilleGrillesBuilder::new(kind, contenu)
     }
 
     /// Verifie la signature interne du message.
@@ -870,8 +869,10 @@ pub mod optionepochseconds {
     }
 }
 
+#[cfg(feature = "alloc")]
 pub type MessageMilleGrillesBuilderDefault<'a> = MessageMilleGrillesBuilder<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
 
+#[cfg(feature = "alloc")]
 pub struct MessageMilleGrillesBuilder<'a, const C: usize> {
     estampille: DateTime<Utc>,
     kind: MessageKind,
@@ -883,22 +884,49 @@ pub struct MessageMilleGrillesBuilder<'a, const C: usize> {
     millegrille: Option<&'a str>,
     #[cfg(feature = "alloc")]
     attachements: Option<HashMap<std::string::String, Value>>,
-    signing_key: &'a SigningKey,
+    signing_key: Option<Cow<'a, SigningKey>>,
     cles_chiffrage: Option<std::vec::Vec<&'a EnveloppeCertificat>>
 }
 
+#[cfg(feature = "alloc")]
 impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 
-    pub fn new(kind: MessageKind, contenu: &'a str, estampille: DateTime<Utc>, signing_key: &'a SigningKey) -> Self {
+    pub fn new(kind: MessageKind, contenu: &'a str) -> Self {
         Self {
-            estampille, kind, contenu: Cow::Borrowed(contenu),
+            estampille: Utc::now(),
+            kind,
+            contenu: Cow::Borrowed(contenu),
             routage: None, origine: None,
             dechiffrage: None,
             certificat: None,
             millegrille: None, attachements: None,
-            signing_key,
+            signing_key: None,
             cles_chiffrage: None,
         }
+    }
+
+    pub fn from_serializable<S>(kind: MessageKind, contenu: &S)
+        -> Result<Self, Error>
+        where S: Serialize
+    {
+        let contenu = serde_json::to_string(contenu)?;
+
+        Ok(Self {
+            estampille: Utc::now(),
+            kind,
+            contenu: Cow::Owned(contenu),
+            routage: None, origine: None,
+            dechiffrage: None,
+            certificat: None,
+            millegrille: None, attachements: None,
+            signing_key: None,
+            cles_chiffrage: None,
+        })
+    }
+
+    pub fn estampille(mut self, estampille: DateTime<Utc>) -> Self {
+        self.estampille = estampille;
+        self
     }
 
     pub fn routage(mut self, routage: RoutageMessage<'a>) -> Self {
@@ -909,6 +937,23 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
     pub fn certificat(mut self, certificat: Vec<&'a str, C>) -> Self {
         self.certificat = Some(certificat);
         self
+    }
+
+    pub fn signing_key(mut self, signing_key: &'a SigningKey) -> Self {
+        self.signing_key = Some(Cow::Borrowed(signing_key));
+        self
+    }
+
+    pub fn enveloppe_signature(mut self, enveloppe: &'a EnveloppePrivee) -> Result<Self, Error> {
+        let pem_vec = &enveloppe.chaine_pem;
+        let mut certificat: Vec<&str, C> = Vec::new();
+        certificat.extend(pem_vec.iter().map(|s| s.as_str()));
+        self.certificat = Some(certificat);
+
+        // Conserver la signing key
+        self.signing_key = Some(Cow::Owned(enveloppe.try_into()?));
+
+        Ok(self)
     }
 
     pub fn origine(mut self, origine: &'a str) -> Self {
@@ -950,8 +995,13 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
     /// Version std avec un Vec qui supporte alloc. Permet de traiter des messages de grande taille.
     #[cfg(feature = "alloc")]
     pub fn build_into_alloc<'b>(self, buffer: &'b mut std::vec::Vec<u8>) -> Result<MessageMilleGrillesRef<'b, C>, Error> {
+        let signing_key = match &self.signing_key {
+            Some(inner) => inner,
+            None => Err(Error::Str("Signing key manquante"))?
+        };
+
         // Calculer pubkey
-        let verifying_key = self.signing_key.verifying_key();
+        let verifying_key = signing_key.verifying_key();
         let pubkey_bytes = verifying_key.as_bytes();
         let mut buf_pubkey_str = [0u8; 64];
         hex::encode_to_slice(pubkey_bytes, &mut buf_pubkey_str).unwrap();
@@ -1045,8 +1095,13 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
     pub fn build_into<const B: usize>(self, buffer: &'a mut Vec<u8, B>)
                                       -> Result<MessageMilleGrillesRef<'a, C>, Error>
     {
+        let signing_key = match &self.signing_key {
+            Some(inner) => inner,
+            None => Err(Error::Str("Signing key manquante"))?
+        };
+
         // Calculer pubkey
-        let verifying_key = self.signing_key.verifying_key();
+        let verifying_key = signing_key.verifying_key();
         let pubkey_bytes = verifying_key.as_bytes();
         let mut buf_pubkey_str = [0u8; 64];
         hex::encode_to_slice(pubkey_bytes, &mut buf_pubkey_str).unwrap();
@@ -1126,8 +1181,13 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             Err(Error::Str("signer:E1"))?
         }
 
+        let signing_key = match &self.signing_key {
+            Some(inner) => inner,
+            None => Err(Error::Str("signer Signing key manquante"))?
+        };
+
         let mut signature_buffer = [0u8; 128];
-        let signature_str = signer_into(self.signing_key, &id_bytes, &mut signature_buffer);
+        let signature_str = signer_into(signing_key, &id_bytes, &mut signature_buffer);
 
         match String::from_str(signature_str) {
             Ok(inner) => Ok(inner),
@@ -1312,8 +1372,9 @@ mod messages_structs_tests {
         certificat.push("CERTIFICAT 1").unwrap();
         certificat.push("CERTIFICAT 2").unwrap();
 
-        let generateur = MessageMilleGrillesBuilderDefault::new(
-            MessageKind::Commande, contenu, estampille, &signing_key)
+        let generateur = MessageMilleGrillesBuilderDefault::new(MessageKind::Commande, contenu)
+            .estampille(estampille)
+            .signing_key(&signing_key)
             .routage(routage)
             .certificat(certificat);
 
@@ -1338,8 +1399,9 @@ mod messages_structs_tests {
         certificat.push("CERTIFICAT 1").unwrap();
         certificat.push("CERTIFICAT 2").unwrap();
 
-        let generateur = MessageMilleGrillesBuilderDefault::new(
-            MessageKind::Commande, contenu, estampille, &signing_key)
+        let generateur = MessageMilleGrillesBuilderDefault::new(MessageKind::Commande, contenu)
+            .estampille(estampille)
+            .signing_key(&signing_key)
             .routage(routage)
             .certificat(certificat);
 
@@ -1383,8 +1445,9 @@ mod messages_structs_tests {
 
         let cipher = CipherMgs4::new().unwrap();
 
-        let generateur = MessageMilleGrillesBuilderDefault::new(
-            MessageKind::CommandeInterMillegrille, contenu, estampille, &signing_key)
+        let generateur = MessageMilleGrillesBuilderDefault::new(MessageKind::CommandeInterMillegrille, contenu)
+            .estampille(estampille)
+            .signing_key(&signing_key)
             .routage(routage)
             .origine("ORIGINE")
             .certificat(certificat);
@@ -1428,8 +1491,9 @@ mod messages_structs_tests {
 
         let cipher = CipherMgs4::with_ca(&enveloppe_ca).unwrap();
 
-        let generateur = MessageMilleGrillesBuilderDefault::new(
-            MessageKind::CommandeInterMillegrille, contenu, estampille, &signing_key)
+        let generateur = MessageMilleGrillesBuilderDefault::new(MessageKind::CommandeInterMillegrille, contenu)
+            .estampille(estampille)
+            .signing_key(&signing_key)
             .routage(routage)
             .origine("ORIGINE")
             .certificat(certificat)

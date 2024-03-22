@@ -504,8 +504,11 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         let cert = EnveloppeCertificat::try_from(chaine.as_str()).unwrap();
         info!("Certificat charge OK : {}", cert.fingerprint().unwrap());
 
-        // Valider. Lance une exception s'il y a une erreur.
-        validateur.valider(&cert, None).unwrap();
+        // Date valide pour le certificat (expire).
+        let date = DateTime::from_timestamp(1710338722, 0).unwrap();
+
+        assert!(validateur.valider(&cert, Some(&date)).is_ok());    // Valide pour date
+        assert!(validateur.valider(&cert, None).is_err());          // Expire pour now
     }
 
     #[test_log::test]

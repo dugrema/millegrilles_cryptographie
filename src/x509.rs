@@ -15,6 +15,7 @@ use openssl::pkey::{PKey, Private, Public};
 use openssl::x509::{X509, X509Ref, X509Req, X509ReqRef};
 use x509_parser::parse_x509_certificate;
 use blake2::{Blake2s256, Digest};
+use ed25519_dalek::{SecretKey, SigningKey};
 use crate::error::Error;
 
 use crate::hachages::HachageCode;
@@ -384,6 +385,21 @@ impl Debug for EnveloppePrivee {
         let fingerprint = self.fingerprint().unwrap_or_else(|_| String::from("N/A"));
         f.write_str(format!("Enveloppe privee {}", fingerprint).as_str())
     }
+}
+
+impl TryInto<SigningKey> for &EnveloppePrivee {
+
+    type Error = Error;
+
+    fn try_into<'a>(self) -> Result<SigningKey, Self::Error> {
+        let mut cle_privee_u8 = SecretKey::default();
+        match self.cle_privee.raw_private_key() {
+            Ok(inner) => cle_privee_u8.copy_from_slice(inner.as_slice()),
+            Err(e) => Err(Error::String(format!("TryInto<SigningKey> for &EnveloppePrivee Erreur raw_private_key {:?}", e)))?
+        };
+        Ok(SigningKey::from_bytes(&cle_privee_u8))
+    }
+
 }
 
 /// Parse et retourne une map avec le subject du CSR

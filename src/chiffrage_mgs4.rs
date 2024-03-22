@@ -17,6 +17,7 @@ use crate::x509::EnveloppeCertificat;
 
 const CONST_TAILLE_BLOCK_MGS4: usize = 64 * 1024;
 
+#[derive(Clone)]
 pub enum CleSecreteCipher {
     CleDerivee((String, CleDerivee)),   // Fingerprint, CleDerivee
     CleSecrete(CleSecreteX25519)        // Cle secrete
@@ -57,7 +58,11 @@ impl CipherMgs4 {
         Self::with_secret(CleSecreteCipher::CleDerivee((ca.fingerprint()?, cle_derivee)))
     }
 
-    pub fn with_secret(cle: CleSecreteCipher) -> Result<Self, Error> {
+    pub fn with_secret<C>(cle: C) -> Result<Self, Error>
+        where C: Into<CleSecreteCipher>
+    {
+        let cle = cle.into();
+
         let cle_secrete = match &cle {
             CleSecreteCipher::CleDerivee((_, cle)) => &cle.secret,
             CleSecreteCipher::CleSecrete(cle) => cle

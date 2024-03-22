@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 std = []
 alloc = ['std', 'serde_json']
-optional-defaults = ['alloc', 'hex/default', 'base64/default', 'multibase/default', 'multihash/default', 'chacha20poly1305/default']
+optional-defaults = ['alloc', 'hex/default', 'base64/default', 'multibase/default', 'multihash/default', 'chacha20poly1305/default', 'chrono/now']
 
 # High-level features
 x509 = ['openssl', 'x509-parser', 'optional-defaults']
