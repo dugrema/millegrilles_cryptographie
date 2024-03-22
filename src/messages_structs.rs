@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
 use heapless::{Vec, FnvIndexMap, String};
 use log::{debug, error};
-use multibase::Base;
 use serde_json::Value;
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
 
@@ -1009,7 +1008,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
     }
 
     #[cfg(feature = "alloc")]
-    pub fn encrypt_into_alloc<P, const K: usize>(mut self, buffer: &mut std::vec::Vec<u8>, mut cipher: P)
+    pub fn encrypt_into_alloc<P, const K: usize>(mut self, buffer: &mut std::vec::Vec<u8>, cipher: P)
         -> Result<MessageMilleGrillesRef<C>, Error>
         where P: Cipher<K>
     {

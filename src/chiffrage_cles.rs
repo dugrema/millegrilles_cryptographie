@@ -80,7 +80,7 @@ pub struct FingerprintCleChiffree {
     pub cle_chiffree: String,
 }
 
-trait CleChiffrage {
+pub trait CleChiffrage {
     fn cles_chiffrees(&self) -> &Vec<FingerprintCleChiffree>;
     fn format(&self) -> FormatChiffrage;
     fn nonce(&self) -> Option<&String>;
