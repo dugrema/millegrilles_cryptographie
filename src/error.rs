@@ -1,4 +1,5 @@
 use std::fmt;
+use std::string::FromUtf8Error;
 #[cfg(feature = "chiffrage")]
 use chacha20poly1305::aead;
 #[cfg(feature = "openssl")]
@@ -23,6 +24,7 @@ pub enum Error {
     SerdeJson(serde_json::Error),
     #[cfg(feature = "std")]
     Io(std::io::Error),
+    FromUtf8(FromUtf8Error),
     #[cfg(feature = "std")]
     String(String),
     Str(&'static str),
@@ -85,6 +87,11 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl From<FromUtf8Error> for Error {
+    fn from(value: FromUtf8Error) -> Self {
+        Self::FromUtf8(value)
+    }
+}
 
 impl From<std::string::String> for Error {
     fn from(value: std::string::String) -> Self {

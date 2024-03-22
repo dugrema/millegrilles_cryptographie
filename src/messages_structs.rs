@@ -1486,7 +1486,7 @@ mod messages_structs_tests {
         ).unwrap();
 
         let enveloppes = vec![
-            &enveloppe_core.enveloppe_pub
+            enveloppe_core.enveloppe_pub.as_ref()
         ];
 
         let cipher = CipherMgs4::with_ca(&enveloppe_ca).unwrap();

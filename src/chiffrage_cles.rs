@@ -256,7 +256,7 @@ mod chiffrage_mgs4_tests {
         ).unwrap();
 
         let enveloppes = vec![
-            &enveloppe_1.enveloppe_pub
+            enveloppe_1.enveloppe_pub.as_ref()
         ];
 
         cle_chiffrage.chiffrer_x25519(enveloppes).unwrap();

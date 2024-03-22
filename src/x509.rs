@@ -3,6 +3,7 @@ use std::fmt::{Debug, Formatter};
 use std::fs::read_to_string;
 use std::ops::Deref;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use chrono::{prelude::*, format::ParseError, DateTime};
 use log::debug;
@@ -16,6 +17,7 @@ use openssl::x509::{X509, X509Ref, X509Req, X509ReqRef};
 use x509_parser::parse_x509_certificate;
 use blake2::{Blake2s256, Digest};
 use ed25519_dalek::{SecretKey, SigningKey};
+use openssl::stack::Stack;
 use crate::error::Error;
 
 use crate::hachages::HachageCode;
@@ -223,19 +225,55 @@ impl EnveloppeCertificat {
         Ok(multibase::encode(Base::Base64, b))
     }
 
-    pub fn extensions(&self) -> Result<ExtensionsMilleGrille, String> {
+    pub fn extensions(&self) -> Result<ExtensionsMilleGrille, Error> {
         match self.certificat.to_der() {
             Ok(inner) => parse_x509(inner.as_slice()),
-            Err(e) => Err(format!("EnveloppeCertificat::extensions Erreur {:?}", e))
+            Err(e) => Err(Error::String(format!("EnveloppeCertificat::extensions Erreur {:?}", e)))
         }
     }
 
-    pub fn chaine_pem(&self) -> Vec<String> {
-        let mut vec = Vec::with_capacity(3);
-        for c in &self.chaine {
-            vec.push(String::from_utf8(c.to_pem().unwrap()).unwrap());
+    pub fn ca_pem(&self) -> Result<Option<String>, Error> {
+        match &self.millegrille {
+            Some(inner) => {
+                let resultat = String::from_utf8(inner.to_pem()?)?;
+                Ok(Some(resultat))
+            },
+            None => Ok(None)
         }
-        vec
+    }
+
+    pub fn chaine_pem(&self) -> Result<Vec<String>, Error> {
+        let mut vec = Vec::with_capacity(4);
+        for c in &self.chaine {
+            vec.push(String::from_utf8(c.to_pem()?)?);
+        }
+        Ok(vec)
+    }
+
+    pub fn intermediaire_stack(&self) -> Result<Stack<X509>, Error> {
+        let mut intermediaire: Stack<X509> = match Stack::new() {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::Openssl(e))?
+        };
+
+        // Generer chaine intermediaire - skip cert[0] (leaf)
+        for cert in &self.chaine[1..] {
+            if let Err(e) = intermediaire.push(cert.to_owned()) {
+                Err(Error::Openssl(e))?
+            }
+        }
+
+        Ok(intermediaire)
+    }
+
+    pub fn chaine_fingerprint_pem(&self) -> Result<Vec<FingerprintPem>, Error> {
+        let mut vec = Vec::with_capacity(4);
+        for c in &self.chaine {
+            let fingerprint = calculer_fingerprint(c)?;
+            let pem = String::from_utf8(c.to_pem()?)?;
+            vec.push(FingerprintPem { fingerprint, pem } )
+        }
+        Ok(vec)
     }
 
     pub fn from_file(cert: &PathBuf) -> Result<Self, Error> {
@@ -277,8 +315,8 @@ impl Debug for EnveloppeCertificat {
 /// Enveloppe avec cle pour cle et certificat combine
 #[derive(Clone)]
 pub struct EnveloppePrivee {
-    pub enveloppe_pub: EnveloppeCertificat,
-    pub enveloppe_ca: EnveloppeCertificat,
+    pub enveloppe_pub: Arc<EnveloppeCertificat>,
+    pub enveloppe_ca: Arc<EnveloppeCertificat>,
     pub cle_privee: PKey<Private>,
     pub chaine_pem: Vec<String>,
     pub ca_pem: String,
@@ -295,7 +333,11 @@ impl EnveloppePrivee {
         ca_pem: String,
         cle_privee_pem: String,
     ) -> Self {
-        Self { enveloppe_pub, enveloppe_ca, cle_privee, chaine_pem, ca_pem, cle_privee_pem }
+        Self {
+            enveloppe_pub: Arc::new(enveloppe_pub),
+            enveloppe_ca: Arc::new(enveloppe_ca),
+            cle_privee, chaine_pem, ca_pem, cle_privee_pem
+        }
     }
 
     pub fn from_str<C,K,A>(cert: C, key: K, ca: A) -> Result<Self, Error>
@@ -318,9 +360,11 @@ impl EnveloppePrivee {
             Err(e) => Err(Error::String(format!("EnveloppePrivee from_str Erreur try_from ca : {:?}", e)))?
         };
 
-        let chaine_pem = enveloppe_pub.chaine_pem();
+        let chaine_pem = enveloppe_pub.chaine_pem()?;
         let enveloppe = EnveloppePrivee {
-            enveloppe_pub, enveloppe_ca, cle_privee, chaine_pem, ca_pem: ca, cle_privee_pem: key
+            enveloppe_pub: Arc::new(enveloppe_pub),
+            enveloppe_ca: Arc::new(enveloppe_ca),
+            cle_privee, chaine_pem, ca_pem: ca, cle_privee_pem: key
         };
 
         // Verifier que le CA, cert et cle privee correspondent. Lance une Err au besoin.
@@ -417,7 +461,7 @@ pub fn get_csr_subject(csr: &X509ReqRef) -> Result<HashMap<String, String>, Stri
     Ok(resultat)
 }
 
-fn parse_x509(cert: &[u8]) -> Result<ExtensionsMilleGrille, String> {
+fn parse_x509(cert: &[u8]) -> Result<ExtensionsMilleGrille, Error> {
     let (_, cert_parsed) = match parse_x509_certificate(&cert) {
         Ok(inner) => inner,
         Err(e) => Err(format!("Erreur parsing X509 : {:?}", e))?
@@ -483,7 +527,7 @@ impl ExtensionsMilleGrille {
 }
 
 impl TryFrom<X509Ref> for ExtensionsMilleGrille {
-    type Error = String;
+    type Error = Error;
 
     fn try_from(value: X509Ref) -> Result<Self, Self::Error> {
         let cert_der = match value.to_der() {
@@ -503,6 +547,12 @@ fn extraire_vec_strings(data: &[u8]) -> Result<Vec<String>, String> {
     }
 
     Ok(vec)
+}
+
+#[derive(Clone, Debug)]
+pub struct FingerprintPem {
+    pub fingerprint: String,
+    pub pem: String,
 }
 
 #[cfg(test)]
