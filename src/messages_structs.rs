@@ -207,7 +207,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
     #[cfg(feature = "serde_json")]
     #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
-    pub pre_migration: Option<std::collections::HashMap<&'a str, serde_json::Value>>,
+    pub pre_migration: Option<HashMap<&'a str, Value>>,
 
     /// IDMG d'origine du message
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -232,7 +232,7 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
     #[cfg(feature = "serde_json")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachements: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
+    pub attachements: Option<HashMap<std::string::String, Value>>,
 
     #[serde(skip)]
     /// Apres verification, conserve : signature valide, hachage valide
@@ -281,7 +281,7 @@ pub struct MessageMilleGrillesOwned {
     /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
     #[cfg(feature = "serde_json")]
     #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
-    pub pre_migration: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
+    pub pre_migration: Option<HashMap<std::string::String, Value>>,
 
     /// IDMG d'origine du message
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -306,7 +306,7 @@ pub struct MessageMilleGrillesOwned {
     /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
     #[cfg(feature = "serde_json")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachements: Option<std::collections::HashMap<std::string::String, serde_json::Value>>,
+    pub attachements: Option<HashMap<std::string::String, Value>>,
 
     #[serde(skip)]
     /// Apres verification, conserve : signature valide, hachage valide
@@ -885,7 +885,7 @@ pub struct MessageMilleGrillesBuilder<'a, const C: usize> {
     #[cfg(feature = "alloc")]
     attachements: Option<HashMap<std::string::String, Value>>,
     signing_key: Option<Cow<'a, SigningKey>>,
-    cles_chiffrage: Option<std::vec::Vec<&'a EnveloppeCertificat>>
+    cles_chiffrage: Option<std::vec::Vec<&'a EnveloppeCertificat>>,
 }
 
 #[cfg(feature = "alloc")]
@@ -961,11 +961,6 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         self
     }
 
-    // pub fn dechiffrage(mut self, dechiffrage: DechiffrageInterMillegrille<'a>) -> Self {
-    //     self.dechiffrage = Some(dechiffrage);
-    //     self
-    // }
-
     pub fn millegrille(mut self, millegrille: &'a str) -> Self {
         self.millegrille = Some(millegrille);
         self
@@ -994,7 +989,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 
     /// Version std avec un Vec qui supporte alloc. Permet de traiter des messages de grande taille.
     #[cfg(feature = "alloc")]
-    pub fn build_into_alloc<'b>(self, buffer: &'b mut std::vec::Vec<u8>) -> Result<MessageMilleGrillesRef<'b, C>, Error> {
+    pub fn build_into_alloc(self, buffer: &mut std::vec::Vec<u8>) -> Result<MessageMilleGrillesRef<C>, Error> {
         let signing_key = match &self.signing_key {
             Some(inner) => inner,
             None => Err(Error::Str("Signing key manquante"))?

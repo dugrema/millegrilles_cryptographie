@@ -2,6 +2,7 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use flate2::read::GzDecoder;
 use std::io::{Read, Write};
+use std::sync::Arc;
 use multibase::Base;
 use openssl::pkey::{PKey, Private};
 use serde::{Deserialize, Serialize};
@@ -224,6 +225,13 @@ pub trait Decipher {
         decoder.read_to_end(&mut data_decompresse)?;
         Ok(data_decompresse)
     }
+}
+
+/// Trait pour recuperer les cles de chiffrage. Utilisable avec le MessageMilleGrillesBuilder.
+pub trait CleChiffrageHandler {
+    /// Retourne les certificats qui peuvent etre utilises pour chiffrer une cle secrete.
+    /// Devrait inclure le certificat de MilleGrille avec flag cert_millegrille==true.
+    fn get_publickeys_chiffrage(&self) -> Vec<Arc<EnveloppeCertificat>>;
 }
 
 #[cfg(test)]
