@@ -271,7 +271,7 @@ impl EnveloppeCertificat {
         for c in &self.chaine {
             let fingerprint = calculer_fingerprint(c)?;
             let pem = String::from_utf8(c.to_pem()?)?;
-            vec.push(FingerprintPem { fingerprint, pem } )
+            vec.push(FingerprintPem { fingerprint, pem, cert_millegrille: false } )
         }
         Ok(vec)
     }
@@ -552,7 +552,12 @@ fn extraire_vec_strings(data: &[u8]) -> Result<Vec<String>, String> {
 #[derive(Clone, Debug)]
 pub struct FingerprintPem {
     pub fingerprint: String,
+
+    /// Chaine PEM du certificat
     pub pem: String,
+
+    /// True si le pem represente le certificat de MilleGrille
+    pub cert_millegrille: bool,
 }
 
 #[cfg(test)]
