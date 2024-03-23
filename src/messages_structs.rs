@@ -198,7 +198,8 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     /// Contenu **json escaped** du message en format json-string
     /// Noter que la deserialization est incomplete, il faut retirer les escape chars
     /// avant de faire un nouveau parsing avec serde.
-    pub contenu: &'a str,
+    #[serde(rename="contenu")]
+    pub contenu_escaped: &'a str,
 
     /// Information de routage de message (optionnel, depend du kind)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -243,7 +244,7 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
 
     /// Parse le contenu et retourne un buffer qui peut servir a deserializer avec serde
     pub fn contenu(&self) -> Result<MessageMilleGrilleBufferContenu, Error> {
-        let contenu_escaped: Result<std::string::String, std::string::String> = (JsonEscapeIter { s: self.contenu.chars() }).collect();
+        let contenu_escaped: Result<std::string::String, std::string::String> = (JsonEscapeIter { s: self.contenu_escaped.chars() }).collect();
         let contenu_vec =  std::vec::Vec::from(contenu_escaped?.as_bytes());
 
         Ok(MessageMilleGrilleBufferContenu { buffer: contenu_vec })
@@ -320,7 +321,7 @@ impl<'a, const C: usize> Into<MessageMilleGrillesOwned> for MessageMilleGrillesR
             pubkey: self.pubkey.to_string(),
             estampille: self.estampille.clone(),
             kind: self.kind.clone(),
-            contenu: self.contenu.to_string(),
+            contenu: self.contenu_escaped.to_string(),
             routage: match self.routage.as_ref() { Some(inner) => Some(inner.into()), None => None },
             pre_migration: match self.pre_migration.as_ref() {
                 Some(inner) => Some(mapref_toowned(inner)),
@@ -726,7 +727,7 @@ impl<'a, const C: usize> From<&'a MessageMilleGrillesRef<'a, C>> for HacheurMess
             pubkey: value.pubkey,
             estampille: &value.estampille,
             kind: value.kind.clone(),
-            contenu: value.contenu,
+            contenu: value.contenu_escaped,
             routage: value.routage.as_ref(),
             origine: value.origine,
             dechiffrage: value.dechiffrage.clone(),
@@ -1017,7 +1018,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             pubkey: pubkey_str,
             estampille: self.estampille,
             kind: self.kind,
-            contenu: self.contenu.as_ref(),
+            contenu_escaped: self.contenu.as_ref(),
             routage: self.routage,
             #[cfg(feature = "serde_json")]
             pre_migration: None,
@@ -1110,7 +1111,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             pubkey: pubkey_str,
             estampille: self.estampille,
             kind: self.kind,
-            contenu: self.contenu.as_ref(),
+            contenu_escaped: self.contenu.as_ref(),
             routage: self.routage,
             #[cfg(feature = "serde_json")]
             pre_migration: None,
@@ -1290,7 +1291,7 @@ mod messages_structs_tests {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
         let mut parsed = buffer.parse().unwrap();
-        debug!("Contenu\n{}", parsed.contenu);
+        debug!("Contenu\n{}", parsed.contenu_escaped);
         parsed.verifier_signature().unwrap();
         debug!("Parsed id: {}", parsed.id);
     }
@@ -1301,8 +1302,8 @@ mod messages_structs_tests {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
         let parsed = buffer.parse().unwrap();
-        debug!("Contenu parsed : {:?}", parsed.contenu);
-        assert!(serde_json::from_str::<Value>(parsed.contenu.as_ref()).is_err());
+        debug!("Contenu parsed : {:?}", parsed.contenu_escaped);
+        assert!(serde_json::from_str::<Value>(parsed.contenu_escaped.as_ref()).is_err());
 
         // let contenu_test = parsed.contenu.replace("\\\"", "\"");
         // let contenu: Value = serde_json::from_str(contenu_test.as_str()).unwrap();
@@ -1331,7 +1332,7 @@ mod messages_structs_tests {
             &parsed.pubkey,
             parsed.estampille.timestamp(),
             parsed.kind.clone() as isize,
-            parsed.contenu,
+            parsed.contenu_escaped,
             &parsed.routage,
         ]);
 
@@ -1403,7 +1404,7 @@ mod messages_structs_tests {
         let mut buffer: std::vec::Vec<u8> = std::vec::Vec::new();
         {
             let mut message_ref = generateur.build_into_alloc(&mut buffer).unwrap();
-            debug!("Message ref contenu\n{}", message_ref.contenu);
+            debug!("Message ref contenu\n{}", message_ref.contenu_escaped);
             assert!(message_ref.verifier_signature().is_ok());
             assert_eq!("03bed2d56baa397dae02c4ffc267f9d71aa1f78f38e64cd03b93461d5c19fc4c", message_ref.id);
             assert_eq!("7bc3079518ed11da0336085bf6962920ff87fb3c4d630a9b58cb6153674f5dd6", message_ref.pubkey);
@@ -1451,7 +1452,7 @@ mod messages_structs_tests {
         {
             // let mut message_ref = generateur.build_into_alloc(&mut buffer).unwrap();
             let mut message_ref = generateur.encrypt_into_alloc(&mut buffer, cipher).unwrap();
-            debug!("Message ref contenu\n{}", message_ref.contenu);
+            debug!("Message ref contenu\n{}", message_ref.contenu_escaped);
             assert!(message_ref.verifier_signature().is_ok());
             assert_eq!(estampille.timestamp(), message_ref.estampille.timestamp());
         }
@@ -1498,7 +1499,7 @@ mod messages_structs_tests {
         {
             // let mut message_ref = generateur.build_into_alloc(&mut buffer).unwrap();
             let mut message_ref = generateur.encrypt_into_alloc(&mut buffer, cipher).unwrap();
-            debug!("Message ref contenu\n{}", message_ref.contenu);
+            debug!("Message ref contenu\n{}", message_ref.contenu_escaped);
             assert!(message_ref.verifier_signature().is_ok());
             assert_eq!(estampille.timestamp(), message_ref.estampille.timestamp());
             assert_eq!(2, message_ref.dechiffrage.unwrap().cles.unwrap().len());
@@ -1508,5 +1509,3 @@ mod messages_structs_tests {
     }
 
 }
-
-
