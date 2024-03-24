@@ -222,9 +222,9 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     #[serde(rename = "sig")]
     pub signature: &'a str,
 
-    /// Chaine de certificats en format PEM.
+    /// Chaine de certificats en format PEM en format **escaped** (json).
     #[serde(rename = "certificat", skip_serializing_if = "Option::is_none")]
-    pub certificat: Option<Vec<&'a str, C>>,
+    pub certificat_escaped: Option<Vec<&'a str, C>>,
 
     /// Certificat de millegrille (root).
     #[serde(rename = "millegrille", skip_serializing_if = "Option::is_none")]
@@ -248,6 +248,20 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         let contenu_vec =  std::vec::Vec::from(contenu_escaped?.as_bytes());
 
         Ok(MessageMilleGrilleBufferContenu { buffer: contenu_vec })
+    }
+
+    pub fn certificat(&self) -> Result<Option<std::vec::Vec<std::string::String>>, Error> {
+        match self.certificat_escaped.as_ref() {
+            Some(inner) => {
+                let mut certificat_string = std::vec::Vec::new();
+                for c in inner {
+                    let certificat: std::string::String = serde_json::from_str(format!("\"{}\"", c).as_str())?;
+                    certificat_string.push(certificat);
+                }
+                Ok(Some(certificat_string))
+            },
+            None => Ok(None)
+        }
     }
 
 }
@@ -314,14 +328,32 @@ pub struct MessageMilleGrillesOwned {
     pub contenu_valide: Option<(bool, bool)>,
 }
 
-impl<'a, const C: usize> Into<MessageMilleGrillesOwned> for MessageMilleGrillesRef<'a, C> {
-    fn into(self) -> MessageMilleGrillesOwned {
-        MessageMilleGrillesOwned {
+impl<'a, const C: usize> TryInto<MessageMilleGrillesOwned> for MessageMilleGrillesRef<'a, C> {
+
+    type Error = Error;
+
+    fn try_into(self) -> Result<MessageMilleGrillesOwned, Self::Error> {
+
+        // Retirer escape chars
+        let contenu= serde_json::from_str(format!("\"{}\"", self.contenu_escaped).as_str())?;
+        let certificat = match self.certificat_escaped {
+            Some(inner) => {
+                let mut certificat_string = std::vec::Vec::new();
+                for c in inner {
+                    let certificat: std::string::String = serde_json::from_str(format!("\"{}\"", c).as_str())?;
+                    certificat_string.push(certificat);
+                }
+                Some(certificat_string)
+            },
+            None => None
+        };
+
+        Ok(MessageMilleGrillesOwned {
             id: self.id.to_string(),
             pubkey: self.pubkey.to_string(),
             estampille: self.estampille.clone(),
             kind: self.kind.clone(),
-            contenu: self.contenu_escaped.to_string(),
+            contenu,
             routage: match self.routage.as_ref() { Some(inner) => Some(inner.into()), None => None },
             pre_migration: match self.pre_migration.as_ref() {
                 Some(inner) => Some(mapref_toowned(inner)),
@@ -330,23 +362,14 @@ impl<'a, const C: usize> Into<MessageMilleGrillesOwned> for MessageMilleGrillesR
             origine: match self.origine.as_ref() { Some(inner) => Some(inner.to_string()), None => None },
             dechiffrage: match self.dechiffrage.as_ref() { Some(inner) => Some(inner.into()), None => None },
             signature: self.signature.to_string(),
-            certificat: match self.certificat.as_ref() {
-                Some(inner) => {
-                    let mut vec_owned = std::vec::Vec::new();
-                    for val in inner {
-                        vec_owned.push(val.to_string());
-                    }
-                    Some(vec_owned)
-                },
-                None => None
-            },
+            certificat,
             millegrille: match self.millegrille.as_ref() { Some(inner) => Some(inner.to_string()), None => None },
             attachements: match self.attachements.as_ref() {
                 Some(inner) => Some(inner.clone()),
                 None => None
             },
             contenu_valide: self.contenu_valide.clone(),
-        }
+        })
     }
 }
 
@@ -881,7 +904,7 @@ pub struct MessageMilleGrillesBuilder<'a, const C: usize> {
     routage: Option<RoutageMessage<'a>>,
     origine: Option<&'a str>,
     dechiffrage: Option<DechiffrageInterMillegrilleOwned>,
-    certificat: Option<Vec<&'a str, C>>,
+    pub certificat: Option<Vec<&'a str, C>>,
     millegrille: Option<&'a str>,
     #[cfg(feature = "alloc")]
     attachements: Option<HashMap<std::string::String, Value>>,
@@ -1025,7 +1048,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             origine: self.origine,
             dechiffrage,
             signature: signature.as_str(),
-            certificat: self.certificat,
+            certificat_escaped: self.certificat,
             millegrille: self.millegrille,
             #[cfg(feature = "serde_json")]
             attachements: self.attachements,
@@ -1118,7 +1141,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             origine: self.origine,
             dechiffrage: None,  // self.dechiffrage,
             signature: signature.as_str(),
-            certificat: self.certificat,
+            certificat_escaped: self.certificat,
             millegrille: self.millegrille,
             #[cfg(feature = "serde_json")]
             attachements: self.attachements,
@@ -1423,7 +1446,7 @@ mod messages_structs_tests {
 
         let message_id = parsed.id.to_string();
 
-        let message_owned: MessageMilleGrillesOwned = parsed.into();
+        let message_owned: MessageMilleGrillesOwned = parsed.try_into().unwrap();
         assert_eq!(message_id, message_owned.id);
     }
 
