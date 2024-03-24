@@ -205,10 +205,10 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routage: Option<RoutageMessage<'a>>,
 
-    /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
-    #[cfg(feature = "serde_json")]
-    #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
-    pub pre_migration: Option<HashMap<&'a str, Value>>,
+    // /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
+    // #[cfg(feature = "serde_json")]
+    // #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
+    // pub pre_migration: Option<HashMap<&'a str, Value>>,
 
     /// IDMG d'origine du message
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -230,10 +230,10 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     #[serde(rename = "millegrille", skip_serializing_if = "Option::is_none")]
     pub millegrille: Option<&'a str>,
 
-    /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
-    #[cfg(feature = "serde_json")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachements: Option<HashMap<std::string::String, Value>>,
+    // /// Attachements au message. Traite comme attachments non signes (doivent etre validable separement).
+    // #[cfg(feature = "serde_json")]
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // pub attachements: Option<HashMap<&'a str, Value>>,
 
     #[serde(skip)]
     /// Apres verification, conserve : signature valide, hachage valide
@@ -355,19 +355,21 @@ impl<'a, const C: usize> TryInto<MessageMilleGrillesOwned> for MessageMilleGrill
             kind: self.kind.clone(),
             contenu,
             routage: match self.routage.as_ref() { Some(inner) => Some(inner.into()), None => None },
-            pre_migration: match self.pre_migration.as_ref() {
-                Some(inner) => Some(mapref_toowned(inner)),
-                None => None
-            },
+            pre_migration: None,
+            // pre_migration: match self.pre_migration.as_ref() {
+            //     Some(inner) => Some(mapref_toowned(inner)),
+            //     None => None
+            // },
             origine: match self.origine.as_ref() { Some(inner) => Some(inner.to_string()), None => None },
             dechiffrage: match self.dechiffrage.as_ref() { Some(inner) => Some(inner.into()), None => None },
             signature: self.signature.to_string(),
             certificat,
             millegrille: match self.millegrille.as_ref() { Some(inner) => Some(inner.to_string()), None => None },
-            attachements: match self.attachements.as_ref() {
-                Some(inner) => Some(inner.clone()),
-                None => None
-            },
+            attachements: None,
+            // attachements: match self.attachements.as_ref() {
+            //     Some(inner) => Some(inner.iter().map(|(k,v)| (k.to_string(), v.clone())).collect()),
+            //     None => None
+            // },
             contenu_valide: self.contenu_valide.clone(),
         })
     }
@@ -440,7 +442,7 @@ impl TryInto<MessageMilleGrillesBufferDefault> for MessageMilleGrillesOwned {
 }
 
 pub struct MessageMilleGrilleBufferContenu {
-    buffer: std::vec::Vec<u8>,
+    pub buffer: std::vec::Vec<u8>,
 }
 
 impl<'a> MessageMilleGrilleBufferContenu {
@@ -799,6 +801,19 @@ impl<const C: usize> MessageMilleGrillesBufferAlloc<C> {
         }
     }
 
+    #[cfg(feature = "serde_json")]
+    pub fn parse_to_owned(&self) -> Result<MessageMilleGrillesOwned, Error> {
+        let message_str = match from_utf8(&*self.buffer) {
+            Ok(inner) => inner,
+            Err(e) => {
+                error!("parse Erreur from_utf8 : {:?}", e);
+                Err(Error::Str("MessageMilleGrilles::parse:E1"))?
+            }
+        };
+        debug!("Parse message : {}", message_str);
+        Ok(serde_json::from_str(message_str)?)
+    }
+
 }
 
 pub type MessageMilleGrillesBufferHeaplessDefault = MessageMilleGrillesBufferHeapless<CONST_BUFFER_MESSAGE_MIN, CONST_NOMBRE_CERTIFICATS_MAX>;
@@ -1036,6 +1051,16 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             None => None
         };
 
+        // let attachements = match self.attachements.as_ref() {
+        //     Some(inner) => {
+        //         let a = inner.iter()
+        //             .map(|(k,v)| (k.as_str(), v.clone()))
+        //             .collect();
+        //         Some(a)
+        //     },
+        //     None => None
+        // };
+
         let message_ref: MessageMilleGrillesRef<C> = MessageMilleGrillesRef {
             id: message_id.as_str(),
             pubkey: pubkey_str,
@@ -1043,15 +1068,15 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             kind: self.kind,
             contenu_escaped: self.contenu.as_ref(),
             routage: self.routage,
-            #[cfg(feature = "serde_json")]
-            pre_migration: None,
+            // #[cfg(feature = "serde_json")]
+            // pre_migration: None,
             origine: self.origine,
             dechiffrage,
             signature: signature.as_str(),
             certificat_escaped: self.certificat,
             millegrille: self.millegrille,
-            #[cfg(feature = "serde_json")]
-            attachements: self.attachements,
+            // #[cfg(feature = "serde_json")]
+            // attachements,
             contenu_valide: None,
         };
 
@@ -1129,6 +1154,16 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         let message_id = self.generer_id(pubkey_str)?;
         let signature = self.signer(message_id.as_str())?;
 
+        // let attachements = match self.attachements.as_ref() {
+        //     Some(inner) => {
+        //         let a = inner.iter()
+        //             .map(|(k,v)| (k.as_str(), v.clone()))
+        //             .collect();
+        //         Some(a)
+        //     },
+        //     None => None
+        // };
+
         let message_ref: MessageMilleGrillesRef<C> = MessageMilleGrillesRef {
             id: message_id.as_str(),
             pubkey: pubkey_str,
@@ -1136,15 +1171,15 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             kind: self.kind,
             contenu_escaped: self.contenu.as_ref(),
             routage: self.routage,
-            #[cfg(feature = "serde_json")]
-            pre_migration: None,
+            // #[cfg(feature = "serde_json")]
+            // pre_migration: None,
             origine: self.origine,
             dechiffrage: None,  // self.dechiffrage,
             signature: signature.as_str(),
             certificat_escaped: self.certificat,
             millegrille: self.millegrille,
-            #[cfg(feature = "serde_json")]
-            attachements: self.attachements,
+            // #[cfg(feature = "serde_json")]
+            // attachements,
             contenu_valide: None,
         };
 
@@ -1239,7 +1274,11 @@ mod messages_structs_tests {
       "certificat": [
         "-----BEGIN CERTIFICATE-----\nMIIClDCCAkagAwIBAgIUQuFP9EOrsQuFkWnXEH8UQNZ1EN4wBQYDK2VwMHIxLTAr\nBgNVBAMTJGY4NjFhYWZkLTUyOTctNDA2Zi04NjE3LWY3Yjg4MDlkZDQ0ODFBMD8G\nA1UEChM4emVZbmNScUVxWjZlVEVtVVo4d2hKRnVIRzc5NmVTdkNUV0U0TTQzMml6\nWHJwMjJiQXR3R203SmYwHhcNMjQwMjIwMTE0NjUzWhcNMjQwMzIyMTE0NzEzWjCB\ngTEtMCsGA1UEAwwkZjg2MWFhZmQtNTI5Ny00MDZmLTg2MTctZjdiODgwOWRkNDQ4\nMQ0wCwYDVQQLDARjb3JlMUEwPwYDVQQKDDh6ZVluY1JxRXFaNmVURW1VWjh3aEpG\ndUhHNzk2ZVN2Q1RXRTRNNDMyaXpYcnAyMmJBdHdHbTdKZjAqMAUGAytlcAMhANHZ\nwhRt4OWZcSSUidlxR4BQ1VvJE93uugvzxg3Vss0xo4HdMIHaMCsGBCoDBAAEIzQu\nc2VjdXJlLDMucHJvdGVnZSwyLnByaXZlLDEucHVibGljMAwGBCoDBAEEBGNvcmUw\nTAYEKgMEAgREQ29yZUJhY2t1cCxDb3JlQ2F0YWxvZ3VlcyxDb3JlTWFpdHJlRGVz\nQ29tcHRlcyxDb3JlUGtpLENvcmVUb3BvbG9naWUwDwYDVR0RBAgwBoIEY29yZTAf\nBgNVHSMEGDAWgBRQUbOqbsQcXmnk3+moqmk1PXOGKjAdBgNVHQ4EFgQU4+j+8rBR\nK+WeiFzo6EIR+t0C7o8wBQYDK2VwA0EAab2vFykbUk1cWugRd10rGiTKp/PKZdG5\nX+Y+lrHe8AHcrpGGtUV8mwwcDsRbw2wtRq2ENceNlQAcwblEkxLvCA==\n-----END CERTIFICATE-----\n",
         "-----BEGIN CERTIFICATE-----\nMIIBozCCAVWgAwIBAgIKAnY5ZhNJUlVzaTAFBgMrZXAwFjEUMBIGA1UEAxMLTWls\nbGVHcmlsbGUwHhcNMjQwMTMwMTM1NDU3WhcNMjUwODEwMTM1NDU3WjByMS0wKwYD\nVQQDEyRmODYxYWFmZC01Mjk3LTQwNmYtODYxNy1mN2I4ODA5ZGQ0NDgxQTA/BgNV\nBAoTOHplWW5jUnFFcVo2ZVRFbVVaOHdoSkZ1SEc3OTZlU3ZDVFdFNE00MzJpelhy\ncDIyYkF0d0dtN0pmMCowBQYDK2VwAyEAPUMU7tlz3HCEB+VzG8NVFQ/nFKjIOZmV\negt+ub3/7SajYzBhMBIGA1UdEwEB/wQIMAYBAf8CAQAwCwYDVR0PBAQDAgEGMB0G\nA1UdDgQWBBRQUbOqbsQcXmnk3+moqmk1PXOGKjAfBgNVHSMEGDAWgBTTiP/MFw4D\nDwXqQ/J2LLYPRUkkETAFBgMrZXADQQB6S4tids+r9e5d+mwpdkrAE2k3+8H0x65z\nWD5eP7A2XeEr0LbxRPNyaO+Q8fvnjjCKasn97MTPSCXnU/4JbWYK\n-----END CERTIFICATE-----\n"
-      ]
+      ],
+      "attachements": {
+        "exemple": {"tada": "toto"},
+        "exemple2": "une string"
+      }
     }"#;
 
     const MESSAGE_2: &str = r#"{
@@ -1439,6 +1478,27 @@ mod messages_structs_tests {
 
     #[cfg(feature = "alloc")]
     #[test_log::test]
+    fn test_parse_owned() {
+        let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
+        buffer.buffer.extend(MESSAGE_1.as_bytes());
+        let parsed = buffer.parse().unwrap();
+
+        let message_id = parsed.id.to_string();
+
+        let message_owned: MessageMilleGrillesOwned = buffer.parse_to_owned().unwrap();
+        assert_eq!(message_id, message_owned.id);
+
+        let attachements = message_owned.attachements.as_ref().unwrap();
+        assert_eq!(2, attachements.len());
+
+        // Faire un cycle pour s'assurer que le processus est complet
+        let buffer2: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = message_owned.try_into().unwrap();
+        let parsed2 = buffer2.parse().unwrap();
+        assert_eq!(parsed.contenu_escaped, parsed2.contenu_escaped);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test_log::test]
     fn test_into_owned() {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
@@ -1446,8 +1506,13 @@ mod messages_structs_tests {
 
         let message_id = parsed.id.to_string();
 
-        let message_owned: MessageMilleGrillesOwned = parsed.try_into().unwrap();
+        let message_owned: MessageMilleGrillesOwned = parsed.clone().try_into().unwrap();
         assert_eq!(message_id, message_owned.id);
+
+        // Faire un cycle pour s'assurer que le processus est complet
+        let buffer2: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = message_owned.try_into().unwrap();
+        let parsed2 = buffer2.parse().unwrap();
+        assert_eq!(parsed.contenu_escaped, parsed2.contenu_escaped);
     }
 
     #[cfg(feature = "alloc")]
