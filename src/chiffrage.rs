@@ -33,6 +33,30 @@ impl Into<&str> for FormatChiffrage {
     }
 }
 
+pub mod formatchiffragestr {
+
+    use serde::{self, Deserialize, Serializer, Deserializer};
+    use serde::de::Error;
+    use crate::chiffrage::FormatChiffrage;
+
+    pub fn serialize<S>(value: &FormatChiffrage, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        let value_str: &str = value.clone().into();
+        serializer.serialize_str(value_str)
+    }
+
+    pub fn deserialize<'de, D>( deserializer: D ) -> Result<FormatChiffrage, D::Error>
+        where D: Deserializer<'de>,
+    {
+        let s = std::string::String::deserialize(deserializer)?;
+        match s.as_str().try_into() {
+            Ok(inner) => Ok(inner),
+            Err(e) => Err(D::Error::custom(format!("valeur FormatChiffrage non supportee : {}", e)))
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Zeroize)]
 #[zeroize(drop)]
 pub struct CleSecrete<const C: usize>(pub [u8; C]);
