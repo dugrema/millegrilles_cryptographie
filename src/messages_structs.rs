@@ -175,6 +175,17 @@ pub struct RoutageMessageOwned {
     pub user_id: Option<std::string::String>,
 }
 
+impl<'a> Into<RoutageMessage<'a>> for &'a RoutageMessageOwned {
+    fn into(self) -> RoutageMessage<'a> {
+        RoutageMessage {
+            action: match self.action.as_ref() { Some(inner)=>Some(inner.as_str()), None => None },
+            domaine: match self.domaine.as_ref() { Some(inner)=>Some(inner.as_str()), None => None },
+            partition: match self.partition.as_ref() { Some(inner)=>Some(inner.as_str()), None => None },
+            user_id: match self.user_id.as_ref() { Some(inner)=>Some(inner.as_str()), None => None },
+        }
+    }
+}
+
 pub type MessageMilleGrillesRefDefault<'a> = MessageMilleGrillesRef<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -375,13 +386,13 @@ impl<'a, const C: usize> TryInto<MessageMilleGrillesOwned> for MessageMilleGrill
     }
 }
 
-fn mapref_toowned(source: &HashMap<&str, Value>) -> HashMap<std::string::String, Value> {
-    let mut hashmap = HashMap::new();
-    for (key, value) in source.iter() {
-        hashmap.insert(key.to_string(), value.to_owned());
-    }
-    hashmap
-}
+// fn mapref_toowned(source: &HashMap<&str, Value>) -> HashMap<std::string::String, Value> {
+//     let mut hashmap = HashMap::new();
+//     for (key, value) in source.iter() {
+//         hashmap.insert(key.to_string(), value.to_owned());
+//     }
+//     hashmap
+// }
 
 impl MessageMilleGrillesOwned {
 
@@ -599,15 +610,15 @@ impl<'a, const C: usize> std::fmt::Display for MessageMilleGrillesRef<'a, C> {
 }
 
 pub struct HacheurMessage<'a> {
-    hacheur: HacheurBlake2s256,
-    pubkey: &'a str,
-    estampille: &'a DateTime<Utc>,
-    kind: MessageKind,
-    contenu: &'a str,
-    routage: Option<&'a RoutageMessage<'a>>,
-    // pre_migration: Option<FnvIndexMap<&'a str, Value, 10>>,
-    origine: Option<&'a str>,
-    dechiffrage: Option<DechiffrageInterMillegrille<'a>>,
+    pub hacheur: HacheurBlake2s256,
+    pub pubkey: &'a str,
+    pub estampille: &'a DateTime<Utc>,
+    pub kind: MessageKind,
+    pub contenu_escaped: &'a str,
+    pub routage: Option<RoutageMessage<'a>>,
+    // pub pre_migration: Option<FnvIndexMap<&'a str, Value, 10>>,
+    pub origine: Option<&'a str>,
+    pub dechiffrage: Option<DechiffrageInterMillegrille<'a>>,
 }
 
 impl<'a> HacheurMessage<'a> {
@@ -618,7 +629,7 @@ impl<'a> HacheurMessage<'a> {
             pubkey,
             estampille,
             kind,
-            contenu,
+            contenu_escaped: contenu,
             routage: None,
             origine: None,
             dechiffrage: None,
@@ -626,7 +637,7 @@ impl<'a> HacheurMessage<'a> {
     }
 
     pub fn routage(mut self, routage: &'a RoutageMessage<'a>) -> Self {
-        self.routage = Some(routage);
+        self.routage = Some(routage.clone());
         self
     }
 
@@ -664,7 +675,7 @@ impl<'a> HacheurMessage<'a> {
         let mut buffer_char = [0u8; 4];
         self.hacheur.update(separateur_bytes);
         self.hacheur.update(guillemet_bytes);
-        for c in self.contenu.chars() {
+        for c in self.contenu_escaped.chars() {
             let char2 = c.encode_utf8(&mut buffer_char);
             self.hacheur.update(char2.as_bytes());
         }
@@ -673,14 +684,14 @@ impl<'a> HacheurMessage<'a> {
 
     fn hacher_routage(&mut self) {
         let mut buffer = [0u8; 200];
-        let routage_size = serde_json_core::to_slice(self.routage.unwrap(), &mut buffer).unwrap();
+        let routage_size = serde_json_core::to_slice(self.routage.as_ref().unwrap(), &mut buffer).unwrap();
         debug!("Routage\n{}", from_utf8(&buffer[..routage_size]).unwrap());
         self.hacheur.update(&buffer[..routage_size]);
     }
 
     fn hacher_dechiffrage(&mut self) {
         let mut buffer = [0u8; 2000];
-        let dechiffrage_size = serde_json_core::to_slice(self.routage.unwrap(), &mut buffer).unwrap();
+        let dechiffrage_size = serde_json_core::to_slice(self.routage.as_ref().unwrap(), &mut buffer).unwrap();
         debug!("Dechiffrage\n{}", from_utf8(&buffer[..dechiffrage_size]).unwrap());
         self.hacheur.update(&buffer[..dechiffrage_size]);
     }
@@ -752,8 +763,8 @@ impl<'a, const C: usize> From<&'a MessageMilleGrillesRef<'a, C>> for HacheurMess
             pubkey: value.pubkey,
             estampille: &value.estampille,
             kind: value.kind.clone(),
-            contenu: value.contenu_escaped,
-            routage: value.routage.as_ref(),
+            contenu_escaped: value.contenu_escaped,
+            routage: value.routage.clone(),
             origine: value.origine,
             dechiffrage: value.dechiffrage.clone(),
         }

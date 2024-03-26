@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use flate2::read::GzDecoder;
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::chiffrage::{CleSecrete, FormatChiffrage};
 use crate::error::Error;
+use crate::messages_structs::DechiffrageInterMillegrilleOwned;
 use crate::x25519::{chiffrer_asymmetrique_ed25519, dechiffrer_asymmetrique_ed25519};
 use crate::x509::EnveloppeCertificat;
 
@@ -137,6 +139,28 @@ impl<const C: usize> CleChiffrageX25519 for CleChiffrageStruct<C> {
             self.cles_chiffrees.push(FingerprintCleChiffree {fingerprint, cle_chiffree: secret_chiffre_string} );
         }
         Ok(())
+    }
+}
+
+impl<const K: usize> Into<DechiffrageInterMillegrilleOwned> for CleChiffrageStruct<K> {
+    fn into(self) -> DechiffrageInterMillegrilleOwned {
+
+        let mut cles = BTreeMap::new();
+        for cle in self.cles_chiffrees {
+            cles.insert(cle.fingerprint, cle.cle_chiffree);
+        }
+
+        let format: &str = self.format.into();
+
+        DechiffrageInterMillegrilleOwned {
+            cle_id: None,
+            cles: Some(cles),
+            format: format.to_string(),
+            hachage: None,
+            header: None,
+            nonce: self.nonce,
+            verification: self.verification,
+        }
     }
 }
 
