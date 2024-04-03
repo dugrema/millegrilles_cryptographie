@@ -186,6 +186,26 @@ impl<'a> Into<RoutageMessage<'a>> for &'a RoutageMessageOwned {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PreMigration<'a> {
+    #[cfg(feature = "alloc")]
+    #[serde(default, with = "optionepochseconds")]
+    pub estampille: Option<DateTime<Utc>>,
+    pub id: Option<&'a str>,
+    pub idmg: Option<&'a str>,
+    pub pubkey: Option<&'a str>,
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PreMigrationOwned {
+    #[serde(default, with = "optionepochseconds")]
+    pub estampille: Option<DateTime<Utc>>,
+    pub id: Option<std::string::String>,
+    pub idmg: Option<std::string::String>,
+    pub pubkey: Option<std::string::String>,
+}
+
 pub type MessageMilleGrillesRefDefault<'a> = MessageMilleGrillesRef<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -216,10 +236,9 @@ pub struct MessageMilleGrillesRef<'a, const C: usize> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routage: Option<RoutageMessage<'a>>,
 
-    // /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
-    // #[cfg(feature = "serde_json")]
-    // #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
-    // pub pre_migration: Option<HashMap<&'a str, Value>>,
+    /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
+    #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
+    pub pre_migration: Option<PreMigration<'a>>,
 
     /// IDMG d'origine du message
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -307,7 +326,7 @@ pub struct MessageMilleGrillesOwned {
     /// Information de migration (e.g. ancien format, MilleGrille tierce, etc).
     #[cfg(feature = "serde_json")]
     #[serde(rename = "pre-migration", skip_serializing_if = "Option::is_none")]
-    pub pre_migration: Option<HashMap<std::string::String, Value>>,
+    pub pre_migration: Option<PreMigrationOwned>,
 
     /// IDMG d'origine du message
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -616,7 +635,7 @@ pub struct HacheurMessage<'a> {
     pub kind: MessageKind,
     pub contenu_escaped: &'a str,
     pub routage: Option<RoutageMessage<'a>>,
-    // pub pre_migration: Option<FnvIndexMap<&'a str, Value, 10>>,
+    pub pre_migration: Option<PreMigration<'a>>,
     pub origine: Option<&'a str>,
     pub dechiffrage: Option<DechiffrageInterMillegrille<'a>>,
 }
@@ -631,6 +650,7 @@ impl<'a> HacheurMessage<'a> {
             kind,
             contenu_escaped: contenu,
             routage: None,
+            pre_migration: None,
             origine: None,
             dechiffrage: None,
         }
@@ -689,6 +709,13 @@ impl<'a> HacheurMessage<'a> {
         self.hacheur.update(&buffer[..routage_size]);
     }
 
+    fn hacher_premigration(&mut self) {
+        let mut buffer = [0u8; 500];
+        let routage_size = serde_json_core::to_slice(self.pre_migration.as_ref().unwrap(), &mut buffer).unwrap();
+        debug!("PreMigration\n{}", from_utf8(&buffer[..routage_size]).unwrap());
+        self.hacheur.update(&buffer[..routage_size]);
+    }
+
     fn hacher_dechiffrage(&mut self) {
         let mut buffer = [0u8; 2000];
         let dechiffrage_size = serde_json_core::to_slice(self.routage.as_ref().unwrap(), &mut buffer).unwrap();
@@ -700,9 +727,11 @@ impl<'a> HacheurMessage<'a> {
         // Effectuer le hachage de : ["pubkey", estampille, kind, "contenu"
         self.hacher_base();
 
+        let virgule = ",".as_bytes();
+
         // Determiner elements additionnels a hacher en fonction du kind
         match self.kind {
-            MessageKind::Document | MessageKind::Reponse | MessageKind::ReponseChiffree => {
+            MessageKind::Document | MessageKind::Reponse => {
                 // [pubkey, estampille, kind, contenu]
                 // Deja fait, rien a ajouter.
             },
@@ -715,25 +744,43 @@ impl<'a> HacheurMessage<'a> {
                 }
 
                 // Ajouter routage
-                self.hacheur.update(",".as_bytes());
+                self.hacheur.update(virgule);
                 self.hacher_routage();
+            },
+            MessageKind::ReponseChiffree => {
+                // [pubkey, estampille, kind, contenu, routage, dechiffrage]
+                if self.dechiffrage.is_none() {
+                    error!("HacheurMessage::hacher Dechiffrage requis");
+                    Err(Error::Str("HacheurMessage::hacher:E2"))?
+                }
+                self.hacheur.update(virgule);
+                self.hacher_dechiffrage();
             },
             MessageKind::TransactionMigree => {
                 // [pubkey, estampille, kind, contenu, routage, pre_migration]
-                panic!("Not implemented")
+                if self.routage.is_none() || self.pre_migration.is_none() {
+                    error!("HacheurMessage::hacher Champs routage et pre-migration requis");
+                    Err(Error::Str("HacheurMessage::hacher:E3"))?
+                }
+
+                // Ajouter routage,pre-migration
+                self.hacheur.update(virgule);
+                self.hacher_routage();
+                self.hacheur.update(virgule);
+                self.hacher_premigration();
             },
             MessageKind::CommandeInterMillegrille => {
                 // [pubkey, estampille, kind, contenu, routage, origine, dechiffrage]
                 if self.routage.is_none() || self.origine.is_none() || self.dechiffrage.is_none() {
                     error!("HacheurMessage::hacher Routage/origine/dechiffrage requis (routage: {:?}, origine: {:?}, dechiffrage: {:?})",
                         self.routage, self.origine, self.dechiffrage);
-                    Err(Error::Str("HacheurMessage::hacher:E2"))?
+                    Err(Error::Str("HacheurMessage::hacher:E4"))?
                 }
-                self.hacheur.update(",".as_bytes());
+                self.hacheur.update(virgule);
                 self.hacher_routage();
-                self.hacheur.update(",".as_bytes());
+                self.hacheur.update(virgule);
                 self.hacheur.update(self.origine.unwrap().as_bytes());
-                self.hacheur.update(",".as_bytes());
+                self.hacheur.update(virgule);
                 self.hacher_dechiffrage();
             },
         }
@@ -750,7 +797,7 @@ impl<'a> HacheurMessage<'a> {
 
         match String::from_str(hachage_str) {
             Ok(inner) => Ok(inner),
-            Err(()) => Err(Error::Str("HacheurMessage::hacher:E2"))?
+            Err(()) => Err(Error::Str("HacheurMessage::hacher:E5"))?
         }
     }
 
@@ -765,6 +812,7 @@ impl<'a, const C: usize> From<&'a MessageMilleGrillesRef<'a, C>> for HacheurMess
             kind: value.kind.clone(),
             contenu_escaped: value.contenu_escaped,
             routage: value.routage.clone(),
+            pre_migration: value.pre_migration.clone(),
             origine: value.origine,
             dechiffrage: value.dechiffrage.clone(),
         }
@@ -1081,6 +1129,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             routage: self.routage,
             // #[cfg(feature = "serde_json")]
             // pre_migration: None,
+            pre_migration: None,
             origine: self.origine,
             dechiffrage,
             signature: signature.as_str(),
@@ -1184,6 +1233,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             routage: self.routage,
             // #[cfg(feature = "serde_json")]
             // pre_migration: None,
+            pre_migration: None,
             origine: self.origine,
             dechiffrage: None,  // self.dechiffrage,
             signature: signature.as_str(),
