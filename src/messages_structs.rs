@@ -206,6 +206,17 @@ pub struct PreMigrationOwned {
     pub pubkey: Option<std::string::String>,
 }
 
+impl Into<PreMigrationOwned> for PreMigration<'_> {
+    fn into(self) -> PreMigrationOwned {
+        PreMigrationOwned {
+            estampille: self.estampille.clone(),
+            id: match self.id { Some(inner) => Some(inner.to_string()), None => None },
+            idmg: match self.idmg { Some(inner) => Some(inner.to_string()), None => None },
+            pubkey: match self.pubkey { Some(inner) => Some(inner.to_string()), None => None },
+        }
+    }
+}
+
 pub type MessageMilleGrillesRefDefault<'a> = MessageMilleGrillesRef<'a, CONST_NOMBRE_CERTIFICATS_MAX>;
 
 #[derive(Clone, Serialize, Deserialize)]
