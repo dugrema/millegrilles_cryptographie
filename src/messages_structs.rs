@@ -1387,6 +1387,50 @@ mod messages_structs_tests {
       ]
     }"#;
 
+    const MESSAGE_3: &str = r#"{
+      "id": "b92f2f8faf21e9729e6ee7670da1a2ac188b3bdb35ad6e30c4d6496da50693a6",
+      "pubkey": "ce7e6ba15e3934ae304422d01759ad8f63adb163b7e468d0ce9e0834cab466b3",
+      "estampille": 1682726249,
+      "kind": 7,
+      "contenu": "{\"csr\":\"-----BEGIN CERTIFICATE REQUEST-----\\r\\nMIGWMEoCAQAwFzEVMBMGA1UEAxMMcHJvcHJpZXRhaXJlMCowBQYDK2VwAyEAL1CU\\r\\nDsQhkqa5CkMZpEjawwGyfrwLZudnws81MRvYalOgADAFBgMrZXADQQBCsI0pw/1A\\r\\nKeDDrVLtZ3PExND0BYSLgNzKE2aLea0Np2p7wP8FaGzOKA44QY/Er5U7uiNfS3h+\\r\\nfNHwhLx1N5YL\\r\\n-----END CERTIFICATE REQUEST-----\\r\\n\",\"fingerprint_pk\":\"mL1CUDsQhkqa5CkMZpEjawwGyfrwLZudnws81MRvYalM\",\"nomUsager\":\"proprietaire\",\"securite\":\"1.public\",\"userId\":\"z2i3XjxAmArxvzMUMCNsvpHf82QY7m2mSBUBM78hZHCqMgDTNQw\"}",
+      "routage": {
+        "action": "inscrireUsager",
+        "domaine": "CoreMaitreDesComptes"
+      },
+      "pre-migration": {
+        "estampille": 1663106698,
+        "pubkey": "7a5b4e80a506ceff47543dd2b8ce795e52865c21d555228b932fcb46d4859b8b",
+        "id": "23f60b48-c1b6-4f8f-b702-52673ca8fade"
+      },
+      "sig": "fb62349a0a055c96d2f23dc79a8fea45afb7e6212387dd65517f000201f5550768591a6459f6355fb07f273e294b3b352f9b3cce927cc14891316f87ff2bb406",
+      "attachements": {
+        "evenements": {
+          "_estampille": {
+            "$date": {
+              "$numberLong": "1663106698000"
+            }
+          },
+          "backup_flag": false,
+          "document_persiste": {
+            "$date": {
+              "$numberLong": "1663106698358"
+            }
+          },
+          "signature_verifiee": {
+            "$date": {
+              "$numberLong": "1663106698358"
+            }
+          },
+          "transaction_complete": true,
+          "transaction_traitee": {
+            "$date": {
+              "$numberLong": "1663106698403"
+            }
+          }
+        }
+      }
+    }"#;
+
     #[test_log::test]
     fn test_parse_message() {
         let message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_1).unwrap();
@@ -1413,6 +1457,16 @@ mod messages_structs_tests {
     #[test_log::test]
     fn test_hacher_evenement() {
         let message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_1).unwrap();
+        let hacheur = HacheurMessage::from(&message_parsed);
+        let resultat = hacheur.hacher().unwrap();
+
+        // Comparer id au hachage - doit correspondre
+        assert_eq!(message_parsed.id, resultat);
+    }
+
+    #[test_log::test]
+    fn test_hacher_premigration() {
+        let message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_3).unwrap();
         let hacheur = HacheurMessage::from(&message_parsed);
         let resultat = hacheur.hacher().unwrap();
 
