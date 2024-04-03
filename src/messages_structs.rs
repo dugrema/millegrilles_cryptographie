@@ -189,20 +189,26 @@ impl<'a> Into<RoutageMessage<'a>> for &'a RoutageMessageOwned {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PreMigration<'a> {
     #[cfg(feature = "alloc")]
-    #[serde(default, with = "optionepochseconds")]
+    #[serde(default, with = "optionepochseconds", skip_serializing_if = "Option::is_none")]
     pub estampille: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub idmg: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pubkey: Option<&'a str>,
 }
 
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PreMigrationOwned {
-    #[serde(default, with = "optionepochseconds")]
+    #[serde(default, with = "optionepochseconds", skip_serializing_if = "Option::is_none")]
     pub estampille: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<std::string::String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub idmg: Option<std::string::String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pubkey: Option<std::string::String>,
 }
 
