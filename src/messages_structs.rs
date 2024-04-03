@@ -206,13 +206,24 @@ pub struct PreMigrationOwned {
     pub pubkey: Option<std::string::String>,
 }
 
-impl Into<PreMigrationOwned> for PreMigration<'_> {
+impl<'a> Into<PreMigrationOwned> for &'a PreMigration<'a> {
     fn into(self) -> PreMigrationOwned {
         PreMigrationOwned {
             estampille: self.estampille.clone(),
             id: match self.id { Some(inner) => Some(inner.to_string()), None => None },
             idmg: match self.idmg { Some(inner) => Some(inner.to_string()), None => None },
             pubkey: match self.pubkey { Some(inner) => Some(inner.to_string()), None => None },
+        }
+    }
+}
+
+impl<'a> Into<PreMigration<'a>> for &'a PreMigrationOwned {
+    fn into(self) -> PreMigration<'a> {
+        PreMigration {
+            estampille: self.estampille.clone(),
+            id: match &self.id { Some(inner) => Some(inner.as_str()), None => None },
+            idmg: match &self.idmg { Some(inner) => Some(inner.as_str()), None => None },
+            pubkey: match &self.pubkey { Some(inner) => Some(inner.as_str()), None => None },
         }
     }
 }
