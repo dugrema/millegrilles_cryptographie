@@ -1339,16 +1339,6 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
     }
 }
 
-/// Macro qui permet de deserialiser le contenu d'un MessageRef ou MessageOwned
-macro_rules! deser_message_buffer {
-    ($message:ident) => {
-        {
-            let message_ref = $message.parse()?;
-            message_ref.contenu()?.deserialize()?
-        }
-    }
-}
-
 #[cfg(test)]
 mod messages_structs_tests {
     use std::path::PathBuf;
@@ -1748,26 +1738,6 @@ mod messages_structs_tests {
         }
         debug!("test_build_into_vec Vec buffer :\n{}", from_utf8(buffer.as_slice()).unwrap());
         buffer.clear();
-    }
-
-    #[cfg(feature = "alloc")]
-    #[test_log::test]
-    fn test_macro() {
-        test_macro_wrapper().unwrap();
-    }
-
-    #[derive(Deserialize)]
-    struct DomaineInfo {
-        instance_id: std::string::String,
-        domaine: std::string::String,
-    }
-
-    fn test_macro_wrapper() -> Result<(), Error> {
-        let message_1 = MessageMilleGrillesBufferDefault::from(MESSAGE_1.as_bytes().to_vec());
-        let value: DomaineInfo = deser_message_buffer!(message_1);
-        assert_eq!("f861aafd-5297-406f-8617-f7b8809dd448", value.instance_id.as_str());
-        assert_eq!("CoreMaitreDesComptes", value.domaine.as_str());
-        Ok(())
     }
 
 }

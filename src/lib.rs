@@ -24,6 +24,8 @@ pub mod chiffrage;
 #[cfg(all(feature = "alloc"))]
 pub mod serde_dates;
 
+#[macro_use]
+mod macros;
 
 // Re-exports
 pub use ed25519_dalek;
