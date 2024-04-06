@@ -1339,6 +1339,15 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
     }
 }
 
+/// Macro qui permet de deserialiser le contenu d'un MessageRef ou MessageOwned
+macro_rules! deser_message_buffer {
+    ($message:ident) => {
+        {
+            let message_ref = $message.parse()?;
+            message_ref.contenu()?.deserialize()?
+        }
+    }
+}
 
 #[cfg(test)]
 mod messages_structs_tests {
@@ -1346,6 +1355,7 @@ mod messages_structs_tests {
     use super::*;
     use log::info;
     use serde_json::json;
+    use x509_parser::nom::AsBytes;
     use crate::chiffrage_mgs4::CipherMgs4;
     use crate::x509::{EnveloppeCertificat, EnveloppePrivee};
 
@@ -1447,7 +1457,8 @@ mod messages_structs_tests {
         // let contenu = "{\"domaine\":\"CoreMaitreDesComptes\",\"exchanges_routing\":null,\"instance_id\":\"f861aafd-5297-406f-8617-f7b8809dd448\",\"primaire\":true,\"reclame_fuuids\":false,\"sous_domaines\":null}";
         let contenu_doc = json!({"domaine": "CoreMaitreDesComptes"});
         let contenu = serde_json::to_string(&contenu_doc).unwrap();
-        let contenu = serde_json::to_string(&contenu).unwrap();  // Escape to string
+        let contenu = serde_json::to_string(&contenu).unwrap();
+        // Escape to string
         debug!("Contenu doc json:\n{}", contenu);
         let hacheur = HacheurMessage::new(pubkey, &estampille, MessageKind::Reponse, contenu.as_str());
         let resultat = hacheur.hacher().unwrap();
@@ -1737,6 +1748,26 @@ mod messages_structs_tests {
         }
         debug!("test_build_into_vec Vec buffer :\n{}", from_utf8(buffer.as_slice()).unwrap());
         buffer.clear();
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test_log::test]
+    fn test_macro() {
+        test_macro_wrapper().unwrap();
+    }
+
+    #[derive(Deserialize)]
+    struct DomaineInfo {
+        instance_id: std::string::String,
+        domaine: std::string::String,
+    }
+
+    fn test_macro_wrapper() -> Result<(), Error> {
+        let message_1 = MessageMilleGrillesBufferDefault::from(MESSAGE_1.as_bytes().to_vec());
+        let value: DomaineInfo = deser_message_buffer!(message_1);
+        assert_eq!("f861aafd-5297-406f-8617-f7b8809dd448", value.instance_id.as_str());
+        assert_eq!("CoreMaitreDesComptes", value.domaine.as_str());
+        Ok(())
     }
 
 }

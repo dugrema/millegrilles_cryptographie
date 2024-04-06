@@ -104,3 +104,9 @@ impl Into<std::string::String> for Error {
         format!("millegrilles_cryptographie::Error {:?}", self)
     }
 }
+
+impl From<&str> for Error {
+    fn from(value: &str) -> Self {
+        Self::String(format!("millegrilles_cryptographie::Error {:?}", value))
+    }
+}
