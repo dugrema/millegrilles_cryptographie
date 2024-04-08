@@ -494,7 +494,15 @@ impl TryInto<MessageMilleGrillesBufferDefault> for MessageMilleGrillesOwned {
     type Error = Error;
 
     fn try_into(self) -> Result<MessageMilleGrillesBufferDefault, Self::Error> {
-        let vec_message = serde_json::to_vec(&self)?;
+        (&self).try_into()
+    }
+}
+
+impl TryInto<MessageMilleGrillesBufferDefault> for &MessageMilleGrillesOwned {
+    type Error = Error;
+
+    fn try_into(self) -> Result<MessageMilleGrillesBufferDefault, Self::Error> {
+        let vec_message = serde_json::to_vec(self)?;
         Ok(MessageMilleGrillesBufferDefault::from(vec_message))
     }
 }
