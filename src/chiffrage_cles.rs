@@ -24,7 +24,7 @@ trait CleDechiffrage<const C: usize> {
     fn verification(&self) -> Option<&String>;
 }
 
-trait CleDechiffrageX25519: CleDechiffrage<X25519_KEY_LEN> {
+pub trait CleDechiffrageX25519: CleDechiffrage<X25519_KEY_LEN> {
     fn dechiffrer_x25519(&mut self, cle_dechiffrage: &PKey<Private>) -> Result<(), Error>;
 }
 

@@ -180,6 +180,11 @@ pub struct DecipherMgs4 {
 
 impl DecipherMgs4 {
     pub fn new(decipher_data: &CleDechiffrageX25519Impl) -> Result<Self, Error> {
+        match decipher_data.format {
+            FormatChiffrage::MGS4 => (),
+            // _ => Err(Error::Str("Format de dechiffrage doit etre MGS4"))?
+        }
+
         let cle_dechiffree = match &decipher_data.cle_secrete {
             Some(inner) => inner,
             None => Err(Error::Str("Cle secrete manquante"))?
