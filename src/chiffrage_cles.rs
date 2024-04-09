@@ -16,7 +16,7 @@ use crate::x509::EnveloppeCertificat;
 
 const X25519_KEY_LEN: usize = 32;
 
-trait CleDechiffrage<const C: usize> {
+pub trait CleDechiffrage<const C: usize> {
     fn cle_chiffree(&self) -> &str;
     fn cle_secrete(&self) -> Option<&CleSecrete<C>>;
     fn format(&self) -> FormatChiffrage;

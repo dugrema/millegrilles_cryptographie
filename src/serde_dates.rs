@@ -88,8 +88,6 @@ mod messages_structs_tests {
     use super::*;
     use log::info;
     use serde::{Deserialize, Serialize};
-    use serde_json::json;
-    use crate::messages_structs::{MessageKind, MessageMilleGrillesRefDefault};
 
     #[derive(Serialize, Deserialize)]
     struct MapStringDate {

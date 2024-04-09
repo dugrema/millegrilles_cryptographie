@@ -25,6 +25,25 @@ pub const CONST_BUFFER_MESSAGE_MIN: usize = 24 * 1024;
 //#[cfg(feature = "std")]
 //pub const CONST_BUFFER_MESSAGE: usize = 10 * 1024 * 1024;
 
+pub trait MessageValidable<'a> {
+    /// Cle publique (pour EC/Ed25519) ou fingerprint du certificat.
+    fn pubkey(&'a self) -> &'a str;
+
+    /// Estampille du message (timestamp)
+    fn estampille(&'a self) -> &'a DateTime<Utc>;
+
+    /// Certificat a utiliser pour valider la signature (Vec<String PEM>).
+    fn certificat(&self) -> Result<Option<std::vec::Vec<std::string::String>>, Error>;
+
+    /// Certificat de la millegrille (PEM)
+    fn millegrille(&'a self) -> Option<&'a str>;
+
+    /// Verifie que la valeur de hachage du message correspond au contenu.
+    /// Lance une Err si invalide.
+    /// Note : ne valide pas la correspondance au certificat/IDMG ni les dates.
+    fn verifier_signature(&mut self) -> Result<(), Error>;
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub enum MessageKind {
@@ -302,13 +321,29 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
 
     /// Parse le contenu et retourne un buffer qui peut servir a deserializer avec serde
     pub fn contenu(&self) -> Result<MessageMilleGrilleBufferContenu, Error> {
-        let contenu_escaped: Result<std::string::String, std::string::String> = (JsonEscapeIter { s: self.contenu_escaped.chars() }).collect();
-        let contenu_vec =  std::vec::Vec::from(contenu_escaped?.as_bytes());
+        let contenu_string = self.contenu_string()?;
+        let contenu_vec =  std::vec::Vec::from(contenu_string.as_bytes());
 
         Ok(MessageMilleGrilleBufferContenu { buffer: contenu_vec })
     }
 
-    pub fn certificat(&self) -> Result<Option<std::vec::Vec<std::string::String>>, Error> {
+    pub fn contenu_string(&self) -> Result<std::string::String, Error> {
+        let contenu_string: Result<std::string::String, std::string::String> = (JsonEscapeIter { s: self.contenu_escaped.chars() }).collect();
+        Ok(contenu_string?)
+    }
+
+}
+
+impl<'a, const C: usize> MessageValidable<'a> for MessageMilleGrillesRef<'a, C> {
+    fn pubkey(&'a self) -> &'a str {
+        self.pubkey
+    }
+
+    fn estampille(&'a self) -> &'a DateTime<Utc> {
+        &self.estampille
+    }
+
+    fn certificat(&self) -> Result<Option<std::vec::Vec<std::string::String>>, Error> {
         match self.certificat_escaped.as_ref() {
             Some(inner) => {
                 let mut certificat_string = std::vec::Vec::new();
@@ -322,6 +357,51 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         }
     }
 
+    fn millegrille(&'a self) -> Option<&'a str> {
+        self.millegrille.clone()
+    }
+
+    fn verifier_signature(&mut self) -> Result<(), Error> {
+        if let Some(inner) = self.contenu_valide {
+            if inner == (true, true) {
+                return Ok(())
+            }
+            Err(Error::Str("verifier_signature Invalide"))?
+        }
+
+        // Verifier le hachage du message
+        let hacheur = HacheurMessage::from(&*self);
+        let hachage_string = hacheur.hacher()?;
+        if self.id != hachage_string.as_str() {
+            self.contenu_valide = Some((false, false));
+            error!("verifier_signature hachage invalide : id: {}, calcule: {}", self.id, hachage_string);
+            Err(Error::Str("verifier_signature hachage invalide"))?
+        }
+
+        // Extraire cle publique (bytes de pubkey) pour verifier la signature
+        let mut buf_pubkey = [0u8; 32];
+        hex::decode_to_slice(self.pubkey, &mut buf_pubkey).unwrap();
+        let verifying_key = VerifyingKey::from_bytes(&buf_pubkey).unwrap();
+
+        // Extraire la signature (bytes de sig)
+        let mut hachage_bytes = [0u8; 32] as MessageId;
+        if let Err(e) = hex::decode_to_slice(self.id, &mut hachage_bytes) {
+            error!("verifier_signature Erreur hex {:?}", e);
+            self.contenu_valide = Some((false, true));
+            Err(Error::Str("verifier_signature:E1"))?
+        }
+
+        // Verifier la signature
+        if ! verifier(&verifying_key, &hachage_bytes, self.signature) {
+            self.contenu_valide = Some((false, true));
+            Err(Error::Str("verifier_signature signature invalide"))?
+        }
+
+        // Marquer signature valide=true, hachage valide=true
+        self.contenu_valide = Some((true, true));
+
+        Ok(())
+    }
 }
 
 #[cfg(feature = "alloc")]
@@ -393,7 +473,8 @@ impl<'a, const C: usize> TryInto<MessageMilleGrillesOwned> for MessageMilleGrill
     fn try_into(self) -> Result<MessageMilleGrillesOwned, Self::Error> {
 
         // Retirer escape chars
-        let contenu= serde_json::from_str(format!("\"{}\"", self.contenu_escaped).as_str())?;
+        // let contenu= serde_json::from_str(format!("\"{}\"", self.contenu_escaped).as_str())?;
+        let contenu = self.contenu_string()?;
         let certificat = match self.certificat_escaped {
             Some(inner) => {
                 let mut certificat_string = std::vec::Vec::new();
@@ -450,26 +531,6 @@ impl MessageMilleGrillesOwned {
         Ok(serde_json::from_str(self.contenu.as_str())?)
     }
 
-    /// Verifie la signature interne du message.
-    /// Lance une Err si invalide.
-    /// Note : ne valide pas la correspondance au certificat/IDMG ni les dates.
-    pub fn verifier_signature(&mut self) -> Result<(), Error> {
-        if let Some(inner) = self.contenu_valide {
-            if inner == (true, true) {
-                return Ok(())
-            }
-            Err(Error::Str("verifier_signature Invalide"))?
-        }
-
-        let message_buffer: MessageMilleGrillesBufferDefault = self.clone().try_into()?;
-        let mut message_ref = match message_buffer.parse() {
-            Ok(inner) => inner,
-            Err(e) => Err(Error::Str(e))?
-        };
-        message_ref.verifier_signature()?;
-        Ok(())
-    }
-
     pub fn ajouter_attachement<K,V>(&mut self, cle: K, valeur: V) -> Result<(), Error>
         where K: Into<std::string::String>, V: Serialize
     {
@@ -507,6 +568,67 @@ impl TryInto<MessageMilleGrillesBufferDefault> for &MessageMilleGrillesOwned {
     }
 }
 
+impl<'a> MessageValidable<'a> for MessageMilleGrillesOwned {
+    fn pubkey(&'a self) -> &'a str {
+        self.pubkey.as_str()
+    }
+
+    fn estampille(&'a self) -> &'a DateTime<Utc> {
+        &self.estampille
+    }
+
+    fn certificat(&self) -> Result<Option<std::vec::Vec<std::string::String>>, Error> {
+        Ok(self.certificat.clone())
+    }
+
+    fn millegrille(&'a self) -> Option<&'a str> {
+        match self.millegrille.as_ref() { Some(inner) => Some(inner.as_str()), None => None }
+    }
+
+    fn verifier_signature(&mut self) -> Result<(), Error> {
+        if let Some(inner) = self.contenu_valide {
+            if inner == (true, true) {
+                return Ok(())
+            }
+            Err(Error::Str("verifier_signature Invalide"))?
+        }
+
+        // Verifier le hachage du message
+        let hacheur = HacheurMessage::try_from(&*self)?;
+        let hachage_string = hacheur.hacher()?;
+        if self.id.as_str() != hachage_string.as_str() {
+            self.contenu_valide = Some((false, false));
+            error!("verifier_signature hachage invalide : id: {}, calcule: {}", self.id, hachage_string);
+            Err(Error::Str("verifier_signature hachage invalide"))?
+        }
+
+        // Extraire cle publique (bytes de pubkey) pour verifier la signature
+        let mut buf_pubkey = [0u8; 32];
+        hex::decode_to_slice(&self.pubkey, &mut buf_pubkey).unwrap();
+        let verifying_key = VerifyingKey::from_bytes(&buf_pubkey).unwrap();
+
+        // Extraire la signature (bytes de sig)
+        let mut hachage_bytes = [0u8; 32] as MessageId;
+        if let Err(e) = hex::decode_to_slice(&self.id, &mut hachage_bytes) {
+            error!("verifier_signature Erreur hex {:?}", e);
+            self.contenu_valide = Some((false, true));
+            Err(Error::Str("verifier_signature:E1"))?
+        }
+
+        // Verifier la signature
+        if ! verifier(&verifying_key, &hachage_bytes, &self.signature) {
+            self.contenu_valide = Some((false, true));
+            Err(Error::Str("verifier_signature signature invalide"))?
+        }
+
+        // Marquer signature valide=true, hachage valide=true
+        self.contenu_valide = Some((true, true));
+
+        Ok(())
+    }
+
+}
+
 pub struct MessageMilleGrilleBufferContenu {
     pub buffer: std::vec::Vec<u8>,
 }
@@ -532,19 +654,14 @@ impl<'a> Iterator for JsonEscapeIter<'a> {
         self.s.next().map(|c| match c {
             '\\' => {
                 match self.s.next() {
+                    Some(c) => match c {
+                        'n' | 'r' | 'b' | 'f' | 't' | '\\' | '/' | '"' => {
+                            Ok(c)
+                        },
+                        'u' => todo!("unicode"),
+                        _ => Err(std::string::String::from("Char escape invalide")),
+                    }
                     None => Err(std::string::String::from("Char escape a la fin de la str")),
-                    Some('n') => Ok('n'),
-                    Some('r') => Ok('r'),
-                    Some('b') => Ok('b'),
-                    Some('f') => Ok('f'),
-                    Some('t') => Ok('t'),
-                    Some('u') => {
-                        todo!("Unicode");
-                    },
-                    Some('\\') => Ok('\\'),
-                    Some('/') => Ok('/'),
-                    Some('"') => Ok('"'),
-                    _ => Err(std::string::String::from("Char escape invalide")),
                 }
             },
             c => Ok(c),
@@ -611,50 +728,6 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         MessageMilleGrillesBuilder::new(kind, contenu)
     }
 
-    /// Verifie la signature interne du message.
-    /// Lance une Err si invalide.
-    /// Note : ne valide pas la correspondance au certificat/IDMG ni les dates.
-    pub fn verifier_signature(&mut self) -> Result<(), Error> {
-        if let Some(inner) = self.contenu_valide {
-            if inner == (true, true) {
-                return Ok(())
-            }
-            Err(Error::Str("verifier_signature Invalide"))?
-        }
-
-        // Verifier le hachage du message
-        let hacheur = HacheurMessage::from(&*self);
-        let hachage_string = hacheur.hacher()?;
-        if self.id != hachage_string.as_str() {
-            self.contenu_valide = Some((false, false));
-            error!("verifier_signature hachage invalide : id: {}, calcule: {}", self.id, hachage_string);
-            Err(Error::Str("verifier_signature hachage invalide"))?
-        }
-
-        // Extraire cle publique (bytes de pubkey) pour verifier la signature
-        let mut buf_pubkey = [0u8; 32];
-        hex::decode_to_slice(self.pubkey, &mut buf_pubkey).unwrap();
-        let verifying_key = VerifyingKey::from_bytes(&buf_pubkey).unwrap();
-
-        // Extraire la signature (bytes de sig)
-        let mut hachage_bytes = [0u8; 32] as MessageId;
-        if let Err(e) = hex::decode_to_slice(self.id, &mut hachage_bytes) {
-            error!("verifier_signature Erreur hex {:?}", e);
-            self.contenu_valide = Some((false, true));
-            Err(Error::Str("verifier_signature:E1"))?
-        }
-
-        // Verifier la signature
-        if ! verifier(&verifying_key, &hachage_bytes, self.signature) {
-            self.contenu_valide = Some((false, true));
-            Err(Error::Str("verifier_signature signature invalide"))?
-        }
-
-        // Marquer signature valide=true, hachage valide=true
-        self.contenu_valide = Some((true, true));
-
-        Ok(())
-    }
 }
 
 #[cfg(feature = "std")]
@@ -669,7 +742,8 @@ pub struct HacheurMessage<'a> {
     pub pubkey: &'a str,
     pub estampille: &'a DateTime<Utc>,
     pub kind: MessageKind,
-    pub contenu_escaped: &'a str,
+    pub contenu: &'a str,
+    pub contenu_escaped: bool,
     pub routage: Option<RoutageMessage<'a>>,
     pub pre_migration: Option<PreMigration<'a>>,
     pub origine: Option<&'a str>,
@@ -678,13 +752,14 @@ pub struct HacheurMessage<'a> {
 
 impl<'a> HacheurMessage<'a> {
 
-    pub fn new(pubkey: &'a str, estampille: &'a DateTime<Utc>, kind: MessageKind, contenu: &'a str) -> Self {
+    pub fn new(pubkey: &'a str, estampille: &'a DateTime<Utc>, kind: MessageKind, contenu_escaped: &'a str) -> Self {
         Self {
             hacheur: HacheurBlake2s256::new(),
             pubkey,
             estampille,
             kind,
-            contenu_escaped: contenu,
+            contenu: contenu_escaped,
+            contenu_escaped: true,
             routage: None,
             pre_migration: None,
             origine: None,
@@ -731,7 +806,18 @@ impl<'a> HacheurMessage<'a> {
         let mut buffer_char = [0u8; 4];
         self.hacheur.update(separateur_bytes);
         self.hacheur.update(guillemet_bytes);
-        for c in self.contenu_escaped.chars() {
+        for c in self.contenu.chars() {
+            if ! self.contenu_escaped {
+                // Escape les caracters pour json-string
+                match c {
+                    '"' | '\\' => {
+                        // Escape backslash
+                        let char2 = '\\'.encode_utf8(&mut buffer_char);
+                        self.hacheur.update(char2.as_bytes());
+                    }
+                    _ => ()
+                }
+            }
             let char2 = c.encode_utf8(&mut buffer_char);
             self.hacheur.update(char2.as_bytes());
         }
@@ -846,12 +932,31 @@ impl<'a, const C: usize> From<&'a MessageMilleGrillesRef<'a, C>> for HacheurMess
             pubkey: value.pubkey,
             estampille: &value.estampille,
             kind: value.kind.clone(),
-            contenu_escaped: value.contenu_escaped,
+            contenu: value.contenu_escaped,
+            contenu_escaped: true,
             routage: value.routage.clone(),
             pre_migration: value.pre_migration.clone(),
             origine: value.origine,
             dechiffrage: value.dechiffrage.clone(),
         }
+    }
+}
+
+impl<'a> TryFrom<&'a MessageMilleGrillesOwned> for HacheurMessage<'a> {
+    type Error = Error;
+    fn try_from(value: &'a MessageMilleGrillesOwned) -> Result<Self, Self::Error> {
+        Ok(HacheurMessage {
+            hacheur: HacheurBlake2s256::new(),
+            pubkey: value.pubkey.as_str(),
+            estampille: &value.estampille,
+            kind: value.kind.clone(),
+            contenu: &value.contenu,
+            contenu_escaped: false,
+            routage: match value.routage.as_ref() { Some(inner) => Some(inner.into()), None => None },
+            pre_migration: match value.pre_migration.as_ref() { Some(inner) => Some(inner.into()), None => None },
+            origine: match value.origine.as_ref() { Some(inner) => Some(inner.as_str()), None => None },
+            dechiffrage: match value.dechiffrage.as_ref() { Some(inner) => Some(inner.try_into()?), None => None },
+        })
     }
 }
 
@@ -1353,7 +1458,6 @@ mod messages_structs_tests {
     use super::*;
     use log::info;
     use serde_json::json;
-    use x509_parser::nom::AsBytes;
     use crate::chiffrage_mgs4::CipherMgs4;
     use crate::x509::{EnveloppeCertificat, EnveloppePrivee};
 
@@ -1438,6 +1542,13 @@ mod messages_structs_tests {
         }
       }
     }"#;
+
+    const TEST_STRING_UTF8_1: &str = r#"
+    Une chaine UTF-8 complexe \"avec chars speciaux\", \n
+    et plein de surprises.\r\n
+    Ḽơᶉëᶆ ȋṕšᶙṁ ḍỡḽǭᵳ ʂǐť ӓṁệẗ, ĉṓɲṩḙċťᶒțûɾ ấɖḯƥĭṩčįɳġ ḝłįʈ, șếᶑ ᶁⱺ ẽḭŭŝḿꝋď ṫĕᶆᶈṓɍ ỉñḉīḑȋᵭṵńť ṷŧ ḹẩḇőꝛế éȶ đꝍꞎôꝛȇ ᵯáꞡᶇā ąⱡîɋṹẵ.\n
+    𐒈𐒝𐒑𐒛𐒐𐒘𐒕𐒖\n
+    🌅🌊🌙🌶🍁🎃"#;
 
     #[test_log::test]
     fn test_parse_message() {
@@ -1669,6 +1780,15 @@ mod messages_structs_tests {
 
     #[cfg(feature = "alloc")]
     #[test_log::test]
+    fn test_owned_hachage() {
+        let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
+        buffer.buffer.extend(MESSAGE_1.as_bytes());
+        let mut message_owned = buffer.parse_to_owned().unwrap();
+        message_owned.verifier_signature().unwrap();
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test_log::test]
     fn test_encrypt_into_alloc() {
         let contenu = "{\"contenu\":\"Le contenu a inclure\"}";
         debug!("Contenu initial\n{}", contenu);
@@ -1748,4 +1868,35 @@ mod messages_structs_tests {
         buffer.clear();
     }
 
+    #[derive(Serialize)]
+    struct ContenuMessage<'a> {
+        texte: &'a str,
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test_log::test]
+    fn test_utf8_speciaux() {
+        let contenu = ContenuMessage { texte: TEST_STRING_UTF8_1 };
+        let contenu_str = serde_json::to_string(&contenu).unwrap();
+        let routage = RoutageMessage::for_action("Test", "test");
+        let signing_key = SigningKey::from_bytes(b"01234567890123456789012345678901");
+
+        let mut message_vec = std::vec::Vec::new();
+        let mut message_owned: MessageMilleGrillesOwned = {
+            let mut message_ref = MessageMilleGrillesRefDefault::builder(MessageKind::Commande, contenu_str.as_str())
+                .routage(routage)
+                .signing_key(&signing_key)
+                .build_into_alloc(&mut message_vec).unwrap();
+
+            // assert_eq!("362543fd839dfcf635406462691ae07dfbd287f14d37df7b247e360b5fb3b8c4", message_ref.id);
+
+            message_ref.verifier_signature().unwrap();
+
+            message_ref.try_into().unwrap()
+        };
+
+        info!("Contenu message \n{}", from_utf8(message_vec.as_slice()).unwrap());
+
+        message_owned.verifier_signature().unwrap();
+    }
 }

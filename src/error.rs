@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 #[cfg(feature = "chiffrage")]
 use chacha20poly1305::aead;
@@ -24,6 +25,7 @@ pub enum Error {
     SerdeJson(serde_json::Error),
     #[cfg(feature = "std")]
     Io(std::io::Error),
+    Utf8Error(Utf8Error),
     FromUtf8(FromUtf8Error),
     #[cfg(feature = "std")]
     String(String),
@@ -108,5 +110,11 @@ impl Into<std::string::String> for Error {
 impl From<&str> for Error {
     fn from(value: &str) -> Self {
         Self::String(format!("millegrilles_cryptographie::Error {:?}", value))
+    }
+}
+
+impl From<Utf8Error> for Error {
+    fn from(value: Utf8Error) -> Self {
+        Self::Utf8Error(value)
     }
 }

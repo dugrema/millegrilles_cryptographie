@@ -12,7 +12,7 @@ macro_rules! deser_message_buffer {
 #[cfg(test)]
 mod macro_tests {
     use serde::Deserialize;
-    use super::*;
+    // use super::*;
     use crate::error::Error;
     use crate::messages_structs::MessageMilleGrillesBufferDefault;
 
