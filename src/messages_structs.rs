@@ -25,7 +25,7 @@ pub const CONST_BUFFER_MESSAGE_MIN: usize = 24 * 1024;
 //#[cfg(feature = "std")]
 //pub const CONST_BUFFER_MESSAGE: usize = 10 * 1024 * 1024;
 
-pub trait MessageValidable<'a> {
+pub trait MessageValidable<'a>: Sync {
     /// Cle publique (pour EC/Ed25519) ou fingerprint du certificat.
     fn pubkey(&'a self) -> &'a str;
 
