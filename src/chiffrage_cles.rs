@@ -231,8 +231,8 @@ pub trait Decipher {
         output_decipher.reserve(data.len());
         output_decipher.extend(std::iter::repeat(1u8).take(data.len()));
 
-        let cleartext_len = self.update(data, output_decipher.as_mut()).unwrap();
-        let decipher_finalize_len = self.finalize(&mut output_decipher.as_mut_slice()[cleartext_len..]).unwrap();
+        let cleartext_len = self.update(data, output_decipher.as_mut())?;
+        let decipher_finalize_len = self.finalize(&mut output_decipher.as_mut_slice()[cleartext_len..])?;
 
         let taille_decipher_totale = cleartext_len + decipher_finalize_len;
         output_decipher.truncate(taille_decipher_totale);
