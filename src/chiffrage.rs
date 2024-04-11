@@ -1,4 +1,3 @@
-use log::info;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use rand;
 use rand::Rng;
@@ -92,6 +91,7 @@ pub fn random_bytes<const C: usize>() -> [u8; C] {
 #[cfg(test)]
 mod ed25519_tests {
     use super::*;
+    use log::info;
 
     #[test_log::test]
     fn test_clesecrete_generer() {

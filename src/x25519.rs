@@ -1,6 +1,5 @@
 use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305};
 use dryoc::classic::crypto_sign_ed25519;
-use log::debug;
 use openssl::derive::Deriver;
 use openssl::pkey::{Id, PKey, Private, Public};
 use crate::chiffrage::CleSecrete;
@@ -217,6 +216,7 @@ fn convertir_private_ed25519_to_x25519(ca_key: &PKey<Private>) -> Result<PKey<Pr
 #[cfg(test)]
 mod x25519_tests {
     use super::*;
+    use log::debug;
 
     #[test_log::test]
     fn test_chiffrage_asymmetrique() {
