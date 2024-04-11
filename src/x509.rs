@@ -5,7 +5,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use chrono::{prelude::*, format::ParseError, DateTime};
+use chrono::{prelude::*, DateTime};
 use log::debug;
 use multibase::{Base, encode};
 use multihash::Multihash;
@@ -206,11 +206,17 @@ impl EnveloppeCertificat {
         Ok(subject == issuer)
     }
 
-    pub fn formatter_date_epoch(date: &Asn1TimeRef) -> Result<DateTime<Utc>, ParseError> {
+    pub fn formatter_date_epoch(date: &Asn1TimeRef) -> Result<DateTime<Utc>, Error> {
         let date_string = date.to_string();
-        match Utc.datetime_from_str(date_string.as_str(), "%b %d %T %Y %Z") {
-            Ok(inner) => Ok(inner),
-            Err(e) => Err(e)
+        // debug!("formatter_date_epoch Date string : {}", date_string);
+        if date_string.contains("GMT") {
+            let date_parsed = NaiveDateTime::parse_from_str(
+                date_string.as_str(), "%b %d %T %Y GMT")
+                .map_err(|e| Error::String(format!("ParseError {:?}", e)))?
+                .and_local_timezone(Utc).unwrap();
+            Ok(date_parsed)
+        } else {
+            Err(Error::Str("Format de date non supporte - doit etre GMT"))?
         }
     }
 
