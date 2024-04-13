@@ -435,7 +435,7 @@ impl<'a, const C: usize> MessageValidable<'a> for MessageMilleGrillesRef<'a, C> 
             if inner == (true, true) {
                 return Ok(())
             }
-            Err(Error::Str("verifier_signature Invalide"))?
+            Err(Error::Str("MessageMilleGrillesRef verifier_signature Invalide"))?
         }
 
         // Verifier le hachage du message
@@ -443,8 +443,8 @@ impl<'a, const C: usize> MessageValidable<'a> for MessageMilleGrillesRef<'a, C> 
         let hachage_string = hacheur.hacher()?;
         if self.id != hachage_string.as_str() {
             self.contenu_valide = Some((false, false));
-            error!("verifier_signature hachage invalide : id: {}, calcule: {}", self.id, hachage_string);
-            Err(Error::Str("verifier_signature hachage invalide"))?
+            error!("MessageMilleGrillesRef verifier_signature hachage invalide : id: {}, calcule: {}", self.id, hachage_string);
+            Err(Error::Str("MessageMilleGrillesRef verifier_signature hachage invalide"))?
         }
 
         // Extraire cle publique (bytes de pubkey) pour verifier la signature
@@ -455,9 +455,9 @@ impl<'a, const C: usize> MessageValidable<'a> for MessageMilleGrillesRef<'a, C> 
         // Extraire la signature (bytes de sig)
         let mut hachage_bytes = [0u8; 32] as MessageId;
         if let Err(e) = hex::decode_to_slice(self.id, &mut hachage_bytes) {
-            error!("verifier_signature Erreur hex {:?}", e);
+            error!("MessageMilleGrillesRef verifier_signature Erreur hex {:?}", e);
             self.contenu_valide = Some((false, true));
-            Err(Error::Str("verifier_signature:E1"))?
+            Err(Error::Str("MessageMilleGrillesRef verifier_signature:E1"))?
         }
 
         // Verifier la signature
@@ -659,7 +659,7 @@ impl<'a> MessageValidable<'a> for MessageMilleGrillesOwned {
             if inner == (true, true) {
                 return Ok(())
             }
-            Err(Error::Str("verifier_signature Invalide"))?
+            Err(Error::Str("MessageMilleGrillesOwned verifier_signature Invalide"))?
         }
 
         // Verifier le hachage du message
@@ -667,8 +667,8 @@ impl<'a> MessageValidable<'a> for MessageMilleGrillesOwned {
         let hachage_string = hacheur.hacher()?;
         if self.id.as_str() != hachage_string.as_str() {
             self.contenu_valide = Some((false, false));
-            error!("verifier_signature hachage invalide : id: {}, calcule: {}", self.id, hachage_string);
-            Err(Error::Str("verifier_signature hachage invalide"))?
+            error!("MessageMilleGrillesOwned verifier_signature hachage invalide : id: {}, calcule: {}", self.id, hachage_string);
+            Err(Error::Str("MessageMilleGrillesOwned verifier_signature hachage invalide"))?
         }
 
         // Extraire cle publique (bytes de pubkey) pour verifier la signature
@@ -681,13 +681,13 @@ impl<'a> MessageValidable<'a> for MessageMilleGrillesOwned {
         if let Err(e) = hex::decode_to_slice(&self.id, &mut hachage_bytes) {
             error!("verifier_signature Erreur hex {:?}", e);
             self.contenu_valide = Some((false, true));
-            Err(Error::Str("verifier_signature:E1"))?
+            Err(Error::Str("MessageMilleGrillesOwned verifier_signature:E1"))?
         }
 
         // Verifier la signature
         if ! verifier(&verifying_key, &hachage_bytes, &self.signature) {
             self.contenu_valide = Some((false, true));
-            Err(Error::Str("verifier_signature signature invalide"))?
+            Err(Error::Str("MessageMilleGrillesOwned verifier_signature signature invalide"))?
         }
 
         // Marquer signature valide=true, hachage valide=true
