@@ -6,7 +6,7 @@ use ed25519_dalek::{SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
 use heapless::{Vec, FnvIndexMap, String};
-use log::{debug, error, info};
+use log::{debug, error};
 use serde_json::Value;
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
 use serde::de::DeserializeOwned;
@@ -882,15 +882,16 @@ impl<'a> HacheurMessage<'a> {
     }
 
     fn hacher_contenu(&mut self) -> Result<(), Error> {
+        let escape_backslash = "\\".as_bytes();
         let mut buffer_char = [0u8; 4];
         let mut iter_chars = self.contenu.iter_elements();
 
-        let mut buffer_backslash = [0u8; 4];
-        let escape_backslash = '\\'.encode_utf8(&mut buffer_backslash);
-
+        // debug!("Contenu original escaped:\n{}", self.contenu);
         // let contenu: std::string::String = serde_json::from_str(format!("\"{}\"", self.contenu).as_str())?;
+        // debug!("Contenu parsed\n{}", contenu);
         // let contenu_escaped = serde_json::to_string(&contenu)?;
         // let contenu_escaped_interieur = &contenu_escaped[1..contenu_escaped.len()-1];
+        // debug!("Contenu re-escaped\n{}", contenu_escaped_interieur);
         // let mut iter_chars = contenu_escaped_interieur.iter_elements();
 
         while let Some(c) = iter_chars.next() {
@@ -899,7 +900,7 @@ impl<'a> HacheurMessage<'a> {
                 match c {
                     '"' | '\\' => {
                         // Escape backslash
-                        self.hacheur.update(escape_backslash.as_bytes());
+                        self.hacheur.update(escape_backslash);
                     }
                     _ => ()
                 }
@@ -935,13 +936,13 @@ impl<'a> HacheurMessage<'a> {
                             },
                             Some(c) => {
                                 // Autre caractere, on remet le \ et le character lu
-                                self.hacheur.update(escape_backslash.as_bytes());
+                                self.hacheur.update(escape_backslash);
                                 let char2 = c.encode_utf8(&mut buffer_char);
                                 self.hacheur.update(char2.as_bytes());
                             },
                             None => {
                                 // Sequence terminee, on remet le \
-                                self.hacheur.update(escape_backslash.as_bytes());
+                                self.hacheur.update(escape_backslash);
                             }
                         }
                     },
@@ -1095,7 +1096,7 @@ impl<'a> TryFrom<&'a MessageMilleGrillesOwned> for HacheurMessage<'a> {
             pubkey: value.pubkey.as_str(),
             estampille: &value.estampille,
             kind: value.kind.clone(),
-            contenu: &value.contenu,
+            contenu: value.contenu.as_str(),
             contenu_escaped: false,
             routage: match value.routage.as_ref() { Some(inner) => Some(inner.into()), None => None },
             pre_migration: match value.pre_migration.as_ref() { Some(inner) => Some(inner.into()), None => None },
@@ -1623,11 +1624,15 @@ mod messages_structs_tests {
         let contenu_doc = json!({"domaine": "CoreMaitreDesComptes"});
         let contenu = serde_json::to_string(&contenu_doc).unwrap();
         let contenu = serde_json::to_string(&contenu).unwrap();
+
+        // Retirer les guillemets pour simuler un contenu qui provient directement d'un pointeur message
+        let contenu_stripped = &contenu[1..contenu.len()-1];
+
         // Escape to string
-        debug!("Contenu doc json:\n{}", contenu);
-        let hacheur = HacheurMessage::new(pubkey, &estampille, MessageKind::Reponse, contenu.as_str());
+        debug!("Contenu doc json:\n{}", contenu_stripped);
+        let hacheur = HacheurMessage::new(pubkey, &estampille, MessageKind::Reponse, contenu_stripped);
         let resultat = hacheur.hacher().unwrap();
-        assert_eq!("ed0f9fe63ffb52c470b187d309010efc1e88ff9bac755a1f3eaab7da0eaa18f8", resultat);
+        assert_eq!("3873562f090d472e6309b02ff2762959e72d24f76919ee0ac62d1d39e1e4a159", resultat);
     }
 
     #[test_log::test]
