@@ -27,6 +27,9 @@ pub mod serde_dates;
 #[macro_use]
 mod macros;
 
+#[cfg(test)]
+mod samples;
+
 // Re-exports
 pub use ed25519_dalek;
 pub use heapless;
