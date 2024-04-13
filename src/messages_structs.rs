@@ -379,7 +379,12 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
     }
 
     pub fn contenu_string(&self) -> Result<std::string::String, Error> {
-        let contenu_string: Result<std::string::String, std::string::String> = (JsonEscapeIter { s: self.contenu_escaped.chars() }).collect();
+        let json_iter = JsonUnescapeIter {
+            s: self.contenu_escaped.chars(),
+            remettre_backslash: false,
+            chars_pending: None,
+        };
+        let contenu_string: Result<std::string::String, Error> = json_iter.collect();
         Ok(contenu_string?)
     }
 
@@ -713,29 +718,89 @@ impl<'a> MessageMilleGrilleBufferContenu {
 
 }
 
-struct JsonEscapeIter<'a> {
+struct JsonUnescapeIter<'a> {
+    /// Characteres en input
     s: std::str::Chars<'a>,
+    /// Si true, on remet le backslash dans l'output.
+    remettre_backslash: bool,
+    /// Permet de conserver des caracteres a emettre.
+    chars_pending: Option<Vec<char, 4>>,
 }
 
-impl<'a> Iterator for JsonEscapeIter<'a> {
-    type Item = Result<char, std::string::String>;
+impl<'a> Iterator for JsonUnescapeIter<'a> {
+    type Item = Result<char, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.s.next().map(|c| match c {
-            '\\' => {
-                match self.s.next() {
-                    Some(c) => match c {
-                        'n' | 'r' | 'b' | 'f' | 't' | '\\' | '/' | '"' => {
-                            Ok(c)
-                        },
-                        'u' => todo!("unicode"),
-                        _ => Err(std::string::String::from("Char escape invalide")),
+        if let Some(pending) = self.chars_pending.as_mut() {
+            let char_pending = pending.remove(0);
+            if pending.len() == 0 {
+                self.chars_pending = None
+            }
+            return Some(Ok(char_pending))
+        }
+
+        match self.s.next() {
+            Some(c) => match c {
+                '\\' => {
+                    let c = match self.s.next() {
+                        Some(c) => match c {
+                            'n' | 'r' | 'b' | 'f' | 't' | '\\' | '/' | '"' => {
+                                Some(c)
+                            },
+                            'u' => {
+                                // Aller chercher les 4 chars suivants pour extraire la valeur unicode
+                                let mut chars_unicode: String<4> = String::new();
+                                for _ in 0..4 {
+                                    match self.s.next() {
+                                        Some(c) => {
+                                            if let Err(_) = chars_unicode.push(c) {
+                                                return Some(Err(Error::Str("hacher_contenu Erreur decodage unicode, trop de chars")))
+                                            }
+                                        },
+                                        None => return Some(Err(Error::Str("hacher_contenu Sequence unicode incomplete")))
+                                    }
+                                }
+
+                                // Decoder la string
+                                let char_radix = match u32::from_str_radix(chars_unicode.as_str(), 16) {
+                                    Ok(inner) => inner,
+                                    Err(e) => {
+                                        return Some(Err(Error::String(format!("hacher_contenu Erreur formattage char u32 {:?}", e))));
+                                    }
+                                };
+
+                                // Convertir en char
+                                let char_unicode = match char::from_u32(char_radix) {
+                                    Some(inner) => inner,
+                                    None => return Some(Err(Error::Str("hacher_contenu Erreur decodage char u32")))
+                                };
+
+                                // On retourne immediatement, on s'est debarrasse de l'escape \uXXXX
+                                return Some(Ok(char_unicode))
+                            },
+                            _ => return Some(Err(Error::Str("Char escape invalide"))),
+                        }
+                        None => return Some(Err(Error::Str("Char escape a la fin de la str")))
+                    };
+
+                    if self.remettre_backslash {
+                        if let Some(c) = c {
+                            let mut vec_pending = Vec::new();
+                            vec_pending.push(c).expect("push");
+                            self.chars_pending = Some(vec_pending);
+                        }
+                        return Some(Ok('\\'))
+                    } else {
+                        match c {
+                            Some(c) => Some(Ok(c)),
+                            None => None
+                        }
                     }
-                    None => Err(std::string::String::from("Char escape a la fin de la str")),
-                }
+                },
+                c => Some(Ok(c))
             },
-            c => Ok(c),
-        })
+            None => None
+        }
     }
 }
 
@@ -882,21 +947,25 @@ impl<'a> HacheurMessage<'a> {
     }
 
     fn hacher_contenu(&mut self) -> Result<(), Error> {
-        let escape_backslash = "\\".as_bytes();
         let mut buffer_char = [0u8; 4];
-        let mut iter_chars = self.contenu.iter_elements();
 
-        // debug!("Contenu original escaped:\n{}", self.contenu);
-        // let contenu: std::string::String = serde_json::from_str(format!("\"{}\"", self.contenu).as_str())?;
-        // debug!("Contenu parsed\n{}", contenu);
-        // let contenu_escaped = serde_json::to_string(&contenu)?;
-        // let contenu_escaped_interieur = &contenu_escaped[1..contenu_escaped.len()-1];
-        // debug!("Contenu re-escaped\n{}", contenu_escaped_interieur);
-        // let mut iter_chars = contenu_escaped_interieur.iter_elements();
-
-        while let Some(c) = iter_chars.next() {
-            if ! self.contenu_escaped {
-                // Escape les caracteres pour json-string
+        if self.contenu_escaped {
+            // Contenu deja escaped - parcourir pour convertir unicode \uXXXX
+            let mut iter_json = JsonUnescapeIter {
+                s: self.contenu.chars(),
+                remettre_backslash: true,
+                chars_pending: None,
+            };
+            while let Some(c) = iter_json.next() {
+                let c = c?;
+                let char2 = c.encode_utf8(&mut buffer_char);
+                self.hacheur.update(char2.as_bytes());
+            }
+        } else {
+            // Contenu sans escape, on ajoute les \ au besoin
+            let escape_backslash = "\\".as_bytes();
+            let mut iter_chars = self.contenu.iter_elements();
+            while let Some(c) = iter_chars.next() {
                 match c {
                     '"' | '\\' => {
                         // Escape backslash
@@ -906,52 +975,6 @@ impl<'a> HacheurMessage<'a> {
                 }
                 let char2 = c.encode_utf8(&mut buffer_char);
                 self.hacheur.update(char2.as_bytes());
-            } else {
-                match c {
-                    '\\' => {
-                        // Verifier si on a un u, represente escape unicode 2 bytes (4 chars hex).
-                        match iter_chars.next() {
-                            Some('u') => {
-                                // Aller chercher les 4 chars suivants pour extraire la valeur unicode
-                                let mut chars_unicode: String<4> = String::new();
-                                for _ in 0..4 {
-                                    match iter_chars.next() {
-                                        Some(c) => chars_unicode.push(c).map_err(|_| Error::Str("hacher_contenu Erreur decodage unicode, trop de chars"))?,
-                                        None => Err(Error::Str("hacher_contenu Sequence unicode incomplete"))?
-                                    }
-                                }
-
-                                // Decoder la string
-                                let char_radix = u32::from_str_radix(chars_unicode.as_str(), 16)
-                                    .map_err(|e| Error::String(format!("hacher_contenu Erreur formattage char u32 {:?}", e)))?;
-
-                                // Convertir en char
-                                let char_unicode = match char::from_u32(char_radix) {
-                                    Some(inner) => inner,
-                                    None => Err(Error::Str("hacher_contenu Erreur decodage char u32"))?
-                                };
-
-                                let char2 = char_unicode.encode_utf8(&mut buffer_char);
-                                self.hacheur.update(char2.as_bytes());
-                            },
-                            Some(c) => {
-                                // Autre caractere, on remet le \ et le character lu
-                                self.hacheur.update(escape_backslash);
-                                let char2 = c.encode_utf8(&mut buffer_char);
-                                self.hacheur.update(char2.as_bytes());
-                            },
-                            None => {
-                                // Sequence terminee, on remet le \
-                                self.hacheur.update(escape_backslash);
-                            }
-                        }
-                    },
-                    _ => {
-                        // Charactere utf-8
-                        let char2 = c.encode_utf8(&mut buffer_char);
-                        self.hacheur.update(char2.as_bytes());
-                    }
-                }
             }
         }
 
@@ -1675,6 +1698,15 @@ mod messages_structs_tests {
     #[test_log::test]
     fn test_verifier_signature_5() {
         let mut message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_5).unwrap();
+
+        let json_iter = JsonUnescapeIter {
+            s: message_parsed.contenu_escaped.chars(),
+            remettre_backslash: true,
+            chars_pending: None
+        };
+        let contenu_parsed: std::string::String = json_iter.map(|c| c.unwrap()).collect();
+        debug!("Contenu parsed JsonIter\n{}", contenu_parsed);
+
         message_parsed.verifier_signature().unwrap();
         assert_eq!(Some((true, true)), message_parsed.contenu_valide);
     }
@@ -1854,6 +1886,15 @@ mod messages_structs_tests {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
         let mut message_owned = buffer.parse_to_owned().unwrap();
+
+        let json_iter = JsonUnescapeIter {
+            s: message_owned.contenu.chars(),
+            remettre_backslash: true,
+            chars_pending: None
+        };
+        let contenu_parsed: std::string::String = json_iter.map(|c| c.unwrap()).collect();
+        debug!("Contenu parsed JsonIter\n{}", contenu_parsed);
+
         message_owned.verifier_signature().unwrap();
     }
 
