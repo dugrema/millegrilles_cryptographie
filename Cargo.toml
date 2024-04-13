@@ -15,7 +15,7 @@ chiffrage = ['alloc', 'x509', 'rand', 'x25519', 'zeroize', 'flate2']
 
 [dependencies]
 heapless = { version = "0.8", features = ["serde"] }
-log = { version = "0.4", features = ["release_max_level_warn"] }
+log = { version = "0.4"}
 chrono = { version = "0.4", default-features = false }
 
 # String representations
