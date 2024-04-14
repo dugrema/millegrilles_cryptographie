@@ -7,8 +7,10 @@ use std::sync::Arc;
 use multibase::Base;
 use openssl::pkey::{PKey, Private};
 use serde::{Deserialize, Serialize};
+use zeroize::{Zeroize, ZeroizeOnDrop};
+use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
 
-use crate::chiffrage::{CleSecrete, FormatChiffrage};
+use crate::chiffrage::{CleSecrete, FormatChiffrage, formatchiffragestr};
 use crate::error::Error;
 use crate::messages_structs::DechiffrageInterMillegrilleOwned;
 use crate::x25519::{chiffrer_asymmetrique_ed25519, dechiffrer_asymmetrique_ed25519};
@@ -258,12 +260,87 @@ pub trait CleChiffrageHandler {
     fn get_publickeys_chiffrage(&self) -> Vec<Arc<EnveloppeCertificat>>;
 }
 
+/// Cle secrete serialisee en base64. Cette valeur doit etre transmise via un message
+/// chiffre (e.g. ReponseChiffree ou CommandeInterMillegrilles)
+#[derive(Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub struct CleSecreteSerialisee {
+    /// Cle secrete encodee en base64
+    pub cle_secrete_base64: heapless::String<64>,
+
+    /// Format de chiffrage.
+    #[serde(with="formatchiffragestr")]
+    #[zeroize(skip)]
+    pub format: FormatChiffrage,
+
+    /// Nonce ou header selon l'algorithme.
+    #[zeroize(skip)]
+    pub nonce: Option<heapless::String<64>>,
+
+    /// Element de verification selon le format de chiffrage.
+    /// Peut etre un hachage (e.g. blake2s) ou un HMAC (e.g. compute tag de chacha20-poly1305).
+    #[zeroize(skip)]
+    pub verification: Option<heapless::String<128>>,
+}
+
+impl CleSecreteSerialisee {
+
+    pub fn from_bytes<const C: usize, S, V>(cle_secrete: CleSecrete<C>, format: FormatChiffrage, nonce: Option<S>, verification: Option<V>)
+        -> Result<Self, Error>
+        where S: AsRef<str>, V: AsRef<str>
+    {
+        let cle_secrete_base64 = base64_nopad.encode(cle_secrete.0).as_str().try_into()
+            .map_err(|_| Error::Str("CleSecreteSerialisee.from_bytes Erreur cle_secrete_base64 (>64 chars)"))?;
+
+        let nonce = match nonce {
+            Some(inner) => Some(
+                inner.as_ref().try_into()
+                    .map_err(|_| Error::Str("CleSecreteSerialisee.from_bytes Erreur champ nonce (>64 chars)"))?
+            ),
+            None => None
+        };
+
+        let verification = match verification {
+            Some(inner) => Some(
+                inner.as_ref().try_into()
+                    .map_err(|_| Error::Str("CleSecreteSerialisee.from_bytes Erreur champ verification (>128 chars)"))?
+            ),
+            None => None
+        };
+
+        Ok(Self {
+            cle_secrete_base64,
+            format,
+            nonce,
+            verification,
+        })
+    }
+
+    pub fn cle_secrete<const C: usize>(&self) -> Result<CleSecrete<C>, Error> {
+        // Decoder la cle
+        let mut cle_vec = base64_nopad.decode(&self.cle_secrete_base64)
+            .map_err(|_| Error::Str("CleSecreteSerialisee.cle_secrete Erreur decodage base64"))?;
+
+        if cle_vec.len() != C {
+            Err(Error::Str("CleSecreteSerialisee.cle_secrete Cle avec mauvaise taille"))?
+        }
+
+        // Conserver dans la struct CleSecrete
+        let mut cle_secrete = CleSecrete ([0u8;C]);
+        cle_secrete.0.copy_from_slice(&cle_vec.as_slice()[0..C]);
+
+        // Nettoyer le buffer du vec
+        cle_vec.zeroize();
+
+        Ok(cle_secrete)
+    }
+}
+
 #[cfg(test)]
 mod chiffrage_mgs4_tests {
     use log::info;
     use std::path::PathBuf;
     use crate::chiffrage::CleSecreteMgs4;
-    use crate::x25519::deriver_asymetrique_ed25519;
+    use crate::x25519::{CleSecreteX25519, deriver_asymetrique_ed25519};
     use crate::x509::EnveloppePrivee;
     use super::*;
 
@@ -358,6 +435,23 @@ mod chiffrage_mgs4_tests {
         cle_dechiffrage.dechiffrer_x25519(&enveloppe_1.cle_privee).unwrap();
         let cle_secrete_dechifree = cle_dechiffrage.cle_secrete.unwrap();
         assert!(cle_secrete.secret == cle_secrete_dechifree);
+    }
+
+    #[test_log::test]
+    fn test_cle_serialisee() {
+        let cle_bytes = b"01234567890123456789012345678901";
+        let cle_secrete = CleSecrete(*cle_bytes);
+        let nonce = "abcd1234";
+        let verification = "efgh5678";
+        let cle = CleSecreteSerialisee::from_bytes(cle_secrete, FormatChiffrage::MGS4, Some(nonce), Some(verification)).unwrap();
+        assert_eq!("MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE", cle.cle_secrete_base64);
+        let cle_string = serde_json::to_string(&cle).unwrap();
+        info!("Cle serialisee:\n{}", cle_string);
+
+        // Deserialiser
+        let cle_deserializee: CleSecreteSerialisee = serde_json::from_str(cle_string.as_str()).unwrap();
+        let cle_secrete: CleSecreteX25519 = cle_deserializee.cle_secrete().unwrap();
+        assert_eq!(&cle_secrete.0, cle_bytes);
     }
 
 }
