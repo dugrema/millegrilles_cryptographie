@@ -65,9 +65,9 @@ pub enum MessageKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DechiffrageInterMillegrille<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cles: Option<FnvIndexMap<&'a str, &'a str, CONST_NOMBRE_CLES_MAX>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub cle_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cles: Option<FnvIndexMap<&'a str, &'a str, CONST_NOMBRE_CLES_MAX>>,
     pub format: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hachage: Option<&'a str>,
