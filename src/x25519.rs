@@ -2,7 +2,6 @@ use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305};
 use dryoc::classic::crypto_sign_ed25519;
 use openssl::derive::Deriver;
 use openssl::pkey::{Id, PKey, Private, Public};
-use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::chiffrage::CleSecrete;

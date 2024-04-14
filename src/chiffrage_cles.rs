@@ -267,6 +267,10 @@ pub struct CleSecreteSerialisee {
     /// Cle secrete encodee en base64
     pub cle_secrete_base64: heapless::String<64>,
 
+    /// Identificateur de cle
+    #[zeroize(skip)]
+    pub cle_id: Option<heapless::String<128>>,
+
     /// Format de chiffrage.
     #[serde(with="formatchiffragestr")]
     #[zeroize(skip)]
@@ -284,12 +288,22 @@ pub struct CleSecreteSerialisee {
 
 impl CleSecreteSerialisee {
 
-    pub fn from_bytes<const C: usize, S, V>(cle_secrete: CleSecrete<C>, format: FormatChiffrage, nonce: Option<S>, verification: Option<V>)
+    pub fn from_cle_secrete<const C: usize, I, S, V>(
+        cle_secrete: CleSecrete<C>, cle_id: Option<I>, format: FormatChiffrage, nonce: Option<S>, verification: Option<V>
+    )
         -> Result<Self, Error>
-        where S: AsRef<str>, V: AsRef<str>
+        where I: AsRef<str>, S: AsRef<str>, V: AsRef<str>
     {
         let cle_secrete_base64 = base64_nopad.encode(cle_secrete.0).as_str().try_into()
             .map_err(|_| Error::Str("CleSecreteSerialisee.from_bytes Erreur cle_secrete_base64 (>64 chars)"))?;
+
+        let cle_id = match cle_id {
+            Some(inner) => Some(
+                inner.as_ref().try_into()
+                    .map_err(|_| Error::Str("CleSecreteSerialisee.from_bytes Erreur champ cle_id (>128 chars)"))?
+            ),
+            None => None
+        };
 
         let nonce = match nonce {
             Some(inner) => Some(
@@ -309,6 +323,7 @@ impl CleSecreteSerialisee {
 
         Ok(Self {
             cle_secrete_base64,
+            cle_id,
             format,
             nonce,
             verification,
@@ -443,7 +458,7 @@ mod chiffrage_mgs4_tests {
         let cle_secrete = CleSecrete(*cle_bytes);
         let nonce = "abcd1234";
         let verification = "efgh5678";
-        let cle = CleSecreteSerialisee::from_bytes(cle_secrete, FormatChiffrage::MGS4, Some(nonce), Some(verification)).unwrap();
+        let cle = CleSecreteSerialisee::from_cle_secrete(cle_secrete, None::<&str>, FormatChiffrage::MGS4, Some(nonce), Some(verification)).unwrap();
         assert_eq!("MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE", cle.cle_secrete_base64);
         let cle_string = serde_json::to_string(&cle).unwrap();
         info!("Cle serialisee:\n{}", cle_string);
