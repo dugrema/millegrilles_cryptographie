@@ -2,6 +2,9 @@ use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305};
 use dryoc::classic::crypto_sign_ed25519;
 use openssl::derive::Deriver;
 use openssl::pkey::{Id, PKey, Private, Public};
+use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
+
 use crate::chiffrage::CleSecrete;
 use crate::error::Error;
 use crate::hachages::{HachageCode, hacher_bytes_into};
@@ -9,6 +12,34 @@ use crate::hachages::{HachageCode, hacher_bytes_into};
 pub type ClePubliqueX25519 = [u8; 32];
 
 pub type CleSecreteX25519 = CleSecrete<32>;
+
+/// Format d'une cle asymmetrique. Le premier byte des version 3+ represent la version du format.
+/// Pour les versions 1 et 2, on se fie a la taille de la cle.
+#[derive(Clone, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
+pub enum FormatCleAsymmetrique {
+    /// 32 bytes, un public peer pour le CA
+    CleDeriveeV1 = 1,
+    /// 80 bytes : |public peer: 32 bytes|cle chiffree XChacha20 : 32 bytes|compute tag : 16 bytes|
+    CleChiffreeV1 = 2,
+    /// 33 bytes : |Version: 1 byte|public peer CA: 32 bytes|
+    CleDeriveeV2 = 3,
+    /// 93 bytes : |Version: 1 byte|public peer: 32 bytes|nonce: 12 bytes|cle chiffree XChacha20 : 32 bytes|compute tag: 16 bytes|
+    CleChiffreeV2 = 4
+}
+
+impl FormatCleAsymmetrique {
+    pub fn detecter_version(cle_secrete: &[u8]) -> Result<Self, Error> {
+        match cle_secrete.len() {
+            32 => Ok(Self::CleDeriveeV1),
+            80 => Ok(Self::CleChiffreeV1),
+            _ => {
+                let version_byte = cle_secrete[0];
+                Ok(serde_json::from_slice(&[version_byte])?)
+            }
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct CleDerivee {
