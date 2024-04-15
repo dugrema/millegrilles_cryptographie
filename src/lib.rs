@@ -23,12 +23,15 @@ pub mod chiffrage_cles;
 pub mod chiffrage;
 #[cfg(all(feature = "alloc"))]
 pub mod serde_dates;
+#[cfg(all(feature = "alloc"))]
+pub mod maitredescles;
 
 #[macro_use]
 mod macros;
 
 #[cfg(test)]
 mod samples;
+
 
 // Re-exports
 pub use ed25519_dalek;
