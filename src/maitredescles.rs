@@ -2,6 +2,7 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use heapless::{Vec, String};
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
+use multibase::Base;
 
 use crate::error::Error;
 use crate::hachages::{HacheurBlake2s256, HacheurInterne};
@@ -19,10 +20,10 @@ pub struct SignatureDomaines {
 
     /// Signature des domaines pour la cle CA en utilisant la cle peer privee
     /// Cette signature existe uniquement pour une cle derivee a partir du CA.
-    pub ca: Option<String<96>>,
+    pub signature_ca: Option<String<96>>,
 
     /// Signature des domaines en utilisant la cle secrete
-    pub secrete: String<96>,
+    pub signature_secrete: String<96>,
 }
 
 impl SignatureDomaines {
@@ -50,8 +51,8 @@ impl SignatureDomaines {
         Ok(Self{
             domaines: domaines_owned,
             version: VERSION_1,
-            ca,
-            secrete: rechiffrage,
+            signature_ca: ca,
+            signature_secrete: rechiffrage,
         })
     }
 
@@ -81,14 +82,14 @@ impl SignatureDomaines {
         Ok(Self {
             domaines: domaines_vec,
             version: VERSION_1,
-            ca: Some(signature_peer_prive_string),
-            secrete: signature_secrete_string,
+            signature_ca: Some(signature_peer_prive_string),
+            signature_secrete: signature_secrete_string,
         })
     }
 
     /// Verifie la signature des domaines vec la valeur publique de la cle pour CA.
     pub fn verifier_ca_base64(&self, public_peer: String<64>) -> Result<(), Error> {
-        let ca = match self.ca.as_ref() {
+        let ca = match self.signature_ca.as_ref() {
             Some(inner) => inner,
             None => Err(Error::Str("CA est None"))?
         };
@@ -118,7 +119,7 @@ impl SignatureDomaines {
             .map_err(|_| Error::Str("verifier_rechiffrage Erreur conversion cle secrete, taille incorrecte"))?;
         let signing_key = SigningKey::from_bytes(cle_secrete);
 
-        let signature_bytes: Vec<u8, 64> = decode_base64(&self.secrete)?;
+        let signature_bytes: Vec<u8, 64> = decode_base64(&self.signature_secrete)?;
         let signature = Signature::from_slice(signature_bytes.as_slice())
             .map_err(|_| Error::Str("verifier_rechiffrage Erreur Signature::from_slice"))?;
 
@@ -126,6 +127,18 @@ impl SignatureDomaines {
             .map_err(|_| Error::Str("verifier_rechiffrage Erreur signature"))
     }
 
+    /// Retourne la valeur blake2s de la signature secrete encodee en base58btc.
+    /// Cette valeur peut etre utilisee comme reference unique pour la cle.
+    pub fn get_cle_ref(&self) -> Result<String<60>, Error> {
+        let signature_secrete: Vec<u8, 64> = decode_base64(&self.signature_secrete)?;
+        let mut hachage_signature_secrete = [0u8; 32];
+        let mut hacheur = HacheurBlake2s256::new();
+        hacheur.update(signature_secrete.as_slice());
+        hacheur.finalize_into(&mut hachage_signature_secrete);
+
+        let val = multibase::encode(Base::Base58Btc, hachage_signature_secrete);
+        Ok(val.as_str().try_into().map_err(|_| Error::Str("Erreur conversion en String pour get_cle_ref"))?)
+    }
 }
 
 fn hacher_domaines(domaines_vec: &Vec<String<32>, 4>) -> Result<[u8; 32], Error> {
@@ -191,8 +204,8 @@ mod maitredescles_tests {
             &domaines, cle_peer.try_into().unwrap(), cle_dechiffree.try_into().unwrap()).unwrap();
         info!("Signature {:?}", signature);
 
-        assert_eq!("G/LIt+VgdhpkfkGavFgxbDDDzyHRUJPm2E7zZaxuB/mxiF15wYnq+MuTj8MjoMOk6zkauTmqfu+e9UL3i8bCAQ", signature.ca.as_ref().unwrap().as_str());
-        assert_eq!("2XvfMHgrlOV6q1BH4IGNzi+79lWJb+/l5VCfNcuGMpmT0kpj5MtRMA5ImNAASJyosdMS8e7Mds6N6OfA7Xy1Dw", signature.secrete.as_str());
+        assert_eq!("G/LIt+VgdhpkfkGavFgxbDDDzyHRUJPm2E7zZaxuB/mxiF15wYnq+MuTj8MjoMOk6zkauTmqfu+e9UL3i8bCAQ", signature.signature_ca.as_ref().unwrap().as_str());
+        assert_eq!("2XvfMHgrlOV6q1BH4IGNzi+79lWJb+/l5VCfNcuGMpmT0kpj5MtRMA5ImNAASJyosdMS8e7Mds6N6OfA7Xy1Dw", signature.signature_secrete.as_str());
 
         // Convertir la cle peer privee en cle publique base64. Verifier la signature.
         let peer_signing_key = SigningKey::from_bytes(cle_peer.try_into().unwrap());
@@ -232,4 +245,15 @@ mod maitredescles_tests {
         } else { panic!("signature doit etre invalide") }
     }
 
+    #[test_log::test]
+    fn test_cle_ref() {
+        let domaines = vec!["domaine1"];
+        let cle_peer = b"01234567890123456789012345678901".as_slice();
+        let cle_dechiffree = b"12345678901234567890123456789013".as_slice();
+        let signature = SignatureDomaines::signer_ed25519(
+            &domaines, cle_peer.try_into().unwrap(), cle_dechiffree.try_into().unwrap()).unwrap();
+
+        let cle_ref = signature.get_cle_ref().unwrap();
+        assert_eq!("z6cji3TFvG1ovBUKGdEtc9dbXdogn4k4WvPdX3CLt7vPf", cle_ref.as_str());
+    }
 }
