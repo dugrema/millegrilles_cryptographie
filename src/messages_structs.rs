@@ -168,6 +168,15 @@ pub struct DechiffrageInterMillegrilleOwned {
     pub verification: Option<std::string::String>,
 }
 
+impl DechiffrageInterMillegrilleOwned {
+    pub fn to_cle_dechiffrage(&self, enveloppe_privee: &EnveloppePrivee)
+                          -> Result<CleDechiffrageX25519Impl, Error>
+    {
+        let dechiffrage_ref: DechiffrageInterMillegrille = self.try_into()?;
+        dechiffrage_ref.to_cle_dechiffrage(enveloppe_privee)
+    }
+}
+
 impl<'a> TryInto<DechiffrageInterMillegrille<'a>> for &'a DechiffrageInterMillegrilleOwned {
 
     type Error = Error;

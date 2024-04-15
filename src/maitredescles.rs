@@ -88,7 +88,9 @@ impl SignatureDomaines {
     }
 
     /// Verifie la signature des domaines vec la valeur publique de la cle pour CA.
-    pub fn verifier_ca_base64(&self, public_peer: String<64>) -> Result<(), Error> {
+    pub fn verifier_ca_base64<S>(&self, public_peer: S) -> Result<(), Error>
+        where S: AsRef<str>
+    {
         let ca = match self.signature_ca.as_ref() {
             Some(inner) => inner,
             None => Err(Error::Str("CA est None"))?
@@ -96,7 +98,7 @@ impl SignatureDomaines {
 
         let hachage_domaines = hacher_domaines(&self.domaines)?;
 
-        let public_peer_bytes: Vec<u8, 32> = decode_base64(public_peer)?;
+        let public_peer_bytes: Vec<u8, 32> = decode_base64(public_peer.as_ref())?;
         let public_peer_slice = public_peer_bytes.as_slice().try_into()
             .map_err(|_| Error::Str("verifier_ca_base64 Erreur public_peer_bytes.as_slice, n'est pas 32 bytes"))?;
         let signature_bytes: Vec<u8, 64> = decode_base64(ca)?;
@@ -210,8 +212,8 @@ mod maitredescles_tests {
         // Convertir la cle peer privee en cle publique base64. Verifier la signature.
         let peer_signing_key = SigningKey::from_bytes(cle_peer.try_into().unwrap());
         let verifying_key = peer_signing_key.verifying_key();
-        let string_veryfing_key = encode_base64(verifying_key.as_bytes()).unwrap();
-        signature.verifier_ca_base64(string_veryfing_key).unwrap();
+        let string_verifying_key: String<50> = encode_base64(verifying_key.as_bytes()).unwrap();
+        signature.verifier_ca_base64(string_verifying_key).unwrap();
 
         // Verifier la signature avec la cle derivee (dechiffree)
         signature.verifier_derivee(cle_dechiffree).unwrap();
@@ -233,9 +235,9 @@ mod maitredescles_tests {
         // Convertir la cle peer privee en cle publique base64. Verifier la signature.
         let peer_signing_key = SigningKey::from_bytes(cle_peer.try_into().unwrap());
         let verifying_key = peer_signing_key.verifying_key();
-        let string_veryfing_key = encode_base64(verifying_key.as_bytes()).unwrap();
+        let string_verifying_key: String<50> = encode_base64(verifying_key.as_bytes()).unwrap();
 
-        if let Err(Error::Str(message)) = signature.verifier_ca_base64(string_veryfing_key) {
+        if let Err(Error::Str(message)) = signature.verifier_ca_base64(string_verifying_key) {
             assert_eq!("verifier_ca_base64 Erreur signature", message);
         } else { panic!("signature doit etre invalide") }
 
