@@ -21,8 +21,8 @@ pub struct SignatureDomaines {
     /// Cette signature existe uniquement pour une cle derivee a partir du CA.
     pub ca: Option<String<96>>,
 
-    /// Signature des domaines en utilisant la cle derivee (secrete)
-    pub derivee: String<96>,
+    /// Signature des domaines en utilisant la cle secrete
+    pub secrete: String<96>,
 }
 
 impl SignatureDomaines {
@@ -51,12 +51,12 @@ impl SignatureDomaines {
             domaines: domaines_owned,
             version: VERSION_1,
             ca,
-            derivee: rechiffrage,
+            secrete: rechiffrage,
         })
     }
 
-    pub fn signer_ed25519<S>(domaines: &std::vec::Vec<S>, peer_prive: &[u8; 32], cle_derivee: &[u8; 32])
-        -> Result<Self, Error>
+    pub fn signer_ed25519<S>(domaines: &std::vec::Vec<S>, peer_prive: &[u8; 32], cle_secrete: &[u8; 32])
+                             -> Result<Self, Error>
         where S: AsRef<str>
     {
         if domaines.len() == 0 {
@@ -76,13 +76,13 @@ impl SignatureDomaines {
 
         // Signer les domaines en utilisant le peer_prive et cle_derivee comme cle de signature
         let signature_peer_prive_string = signer_hachage(peer_prive, hachage_domaines.as_slice())?;
-        let signature_derive_string = signer_hachage(cle_derivee, hachage_domaines.as_slice())?;
+        let signature_secrete_string = signer_hachage(cle_secrete, hachage_domaines.as_slice())?;
 
         Ok(Self {
             domaines: domaines_vec,
             version: VERSION_1,
             ca: Some(signature_peer_prive_string),
-            derivee: signature_derive_string,
+            secrete: signature_secrete_string,
         })
     }
 
@@ -118,7 +118,7 @@ impl SignatureDomaines {
             .map_err(|_| Error::Str("verifier_rechiffrage Erreur conversion cle secrete, taille incorrecte"))?;
         let signing_key = SigningKey::from_bytes(cle_secrete);
 
-        let signature_bytes: Vec<u8, 64> = decode_base64(&self.derivee)?;
+        let signature_bytes: Vec<u8, 64> = decode_base64(&self.secrete)?;
         let signature = Signature::from_slice(signature_bytes.as_slice())
             .map_err(|_| Error::Str("verifier_rechiffrage Erreur Signature::from_slice"))?;
 
@@ -192,7 +192,7 @@ mod maitredescles_tests {
         info!("Signature {:?}", signature);
 
         assert_eq!("G/LIt+VgdhpkfkGavFgxbDDDzyHRUJPm2E7zZaxuB/mxiF15wYnq+MuTj8MjoMOk6zkauTmqfu+e9UL3i8bCAQ", signature.ca.as_ref().unwrap().as_str());
-        assert_eq!("2XvfMHgrlOV6q1BH4IGNzi+79lWJb+/l5VCfNcuGMpmT0kpj5MtRMA5ImNAASJyosdMS8e7Mds6N6OfA7Xy1Dw", signature.derivee.as_str());
+        assert_eq!("2XvfMHgrlOV6q1BH4IGNzi+79lWJb+/l5VCfNcuGMpmT0kpj5MtRMA5ImNAASJyosdMS8e7Mds6N6OfA7Xy1Dw", signature.secrete.as_str());
 
         // Convertir la cle peer privee en cle publique base64. Verifier la signature.
         let peer_signing_key = SigningKey::from_bytes(cle_peer.try_into().unwrap());
