@@ -3,58 +3,69 @@ use heapless::{Vec, String};
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
 use multibase::Base;
+use openssl::pkey::{Id, PKey, Private};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::error::Error;
 use crate::hachages::{HacheurBlake2s256, HacheurInterne};
+use crate::x25519::convertir_public_ed25519_to_x25519_openssl;
 
 pub const VERSION_1: i32 = 1;   // Signature ed25519
+
+pub const TAILLE_DOMAINE_STR: usize = 40;
+
+#[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
+#[repr(i32)]
+pub enum SignatureDomainesVersion {
+    Version1 = 1,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// Utilitaires de messagerie et signature pour commandes maitre des cles
 /// La liste des domaines est extraite en json (e.g. ["domaine1","domaine2",...]) et signee.
 pub struct SignatureDomaines {
     /// Liste des domaines supportes pour la cle.
-    pub domaines: Vec<String<32>, 4>,
+    pub domaines: Vec<String<TAILLE_DOMAINE_STR>, 4>,
 
-    pub version: i32,
+    pub version: SignatureDomainesVersion,
 
-    /// Signature des domaines pour la cle CA en utilisant la cle peer privee
-    /// Cette signature existe uniquement pour une cle derivee a partir du CA.
-    pub signature_ca: Option<String<96>>,
+    /// Peer public Ed25519, represente la cle chiffree pour le CA, format base64.
+    /// Doit etre converti en X25519 pour deriver le secret en utilisant la cle privee X25519 du CA + blake2s.
+    pub peer_ca: Option<String<50>>,
 
     /// Signature des domaines en utilisant la cle secrete
-    pub signature_secrete: String<96>,
+    pub signature: String<96>,
 }
 
 impl SignatureDomaines {
 
-    pub fn new<S, T>(domaines: &std::vec::Vec<S>, ca: Option<T>, rechiffrage: String<96>) -> Result<Self, Error>
-        where S: AsRef<str>, T: AsRef<str>
-    {
-        if domaines.len() == 0 {
-            Err(Error::Str("La liste des domaines est vide"))?
-        }
-
-        let ca = match ca {
-            Some(inner) => Some(inner.as_ref().try_into().map_err(|_| Error::Str("SignatureDomaines.new Erreur conversion signature ca (>128 chars)"))?),
-            None => None
-        };
-
-        let mut domaines_owned = Vec::new();
-        for domaine in domaines {
-            let domaine = domaine.as_ref().try_into()
-                .map_err(|_| Error::Str("SignatureDomaines.new Erreur conversion domaine (>32 chars)"))?;
-            domaines_owned.push(domaine)
-                .map_err(|_| Error::Str("SignatureDomaines.new Erreur, max 4 domaines"))?;
-        }
-
-        Ok(Self{
-            domaines: domaines_owned,
-            version: VERSION_1,
-            signature_ca: ca,
-            signature_secrete: rechiffrage,
-        })
-    }
+    // pub fn new<S, T>(domaines: &std::vec::Vec<S>, ca: Option<T>, rechiffrage: String<96>) -> Result<Self, Error>
+    //     where S: AsRef<str>, T: AsRef<str>
+    // {
+    //     if domaines.len() == 0 {
+    //         Err(Error::Str("La liste des domaines est vide"))?
+    //     }
+    //
+    //     let ca = match ca {
+    //         Some(inner) => Some(inner.as_ref().try_into().map_err(|_| Error::Str("SignatureDomaines.new Erreur conversion signature ca (>128 chars)"))?),
+    //         None => None
+    //     };
+    //
+    //     let mut domaines_owned = Vec::new();
+    //     for domaine in domaines {
+    //         let domaine = domaine.as_ref().try_into()
+    //             .map_err(|_| Error::Str("SignatureDomaines.new Erreur conversion domaine (>32 chars)"))?;
+    //         domaines_owned.push(domaine)
+    //             .map_err(|_| Error::Str("SignatureDomaines.new Erreur, max 4 domaines"))?;
+    //     }
+    //
+    //     Ok(Self{
+    //         domaines: domaines_owned,
+    //         version: VERSION_1,
+    //         peer_ca: None,
+    //         signature_secrete: rechiffrage,
+    //     })
+    // }
 
     pub fn signer_ed25519<S>(domaines: &std::vec::Vec<S>, peer_prive: &[u8; 32], cle_secrete: &[u8; 32])
                              -> Result<Self, Error>
@@ -64,7 +75,7 @@ impl SignatureDomaines {
             Err(Error::Str("La liste des domaines est vide"))?
         }
 
-        let mut domaines_vec: Vec<String<32>, 4> = Vec::new();
+        let mut domaines_vec: Vec<String<TAILLE_DOMAINE_STR>, 4> = Vec::new();
         for domaine in domaines {
             let domaine = domaine.as_ref().try_into()
                 .map_err(|_| Error::Str("SignatureDomaines.signer_ed25519 Erreur domaine, max 32 chars"))?;
@@ -75,41 +86,22 @@ impl SignatureDomaines {
         // Hacher les domaines avec blake2s
         let hachage_domaines = hacher_domaines(&mut domaines_vec)?;
 
-        // Signer les domaines en utilisant le peer_prive et cle_derivee comme cle de signature
-        let signature_peer_prive_string = signer_hachage(peer_prive, hachage_domaines.as_slice())?;
+        // Signer les domaines en utilisant la cle_secrete comme cle de signature
         let signature_secrete_string = signer_hachage(cle_secrete, hachage_domaines.as_slice())?;
+
+        // Conserver le peer public - devient la methode pour restaurer la cle avec le CA
+        let cle_private_ed25519 = PKey::private_key_from_raw_bytes(peer_prive, Id::ED25519)?;
+        let cle_public_ed25519 = cle_private_ed25519.raw_public_key()?;
+        let cle_public_base64 = base64_nopad.encode(cle_public_ed25519);
+        let peer_ca = cle_public_base64.as_str().try_into()
+            .map_err(|_| Error::Str("SignatureDomaines.signer_ed25519 Erreur peer_ca >50 chars"))?;
 
         Ok(Self {
             domaines: domaines_vec,
-            version: VERSION_1,
-            signature_ca: Some(signature_peer_prive_string),
-            signature_secrete: signature_secrete_string,
+            version: SignatureDomainesVersion::Version1,
+            peer_ca: Some(peer_ca),
+            signature: signature_secrete_string,
         })
-    }
-
-    /// Verifie la signature des domaines vec la valeur publique de la cle pour CA.
-    pub fn verifier_ca_base64<S>(&self, public_peer: S) -> Result<(), Error>
-        where S: AsRef<str>
-    {
-        let ca = match self.signature_ca.as_ref() {
-            Some(inner) => inner,
-            None => Err(Error::Str("CA est None"))?
-        };
-
-        let hachage_domaines = hacher_domaines(&self.domaines)?;
-
-        let public_peer_bytes: Vec<u8, 32> = decode_base64(public_peer.as_ref())?;
-        let public_peer_slice = public_peer_bytes.as_slice().try_into()
-            .map_err(|_| Error::Str("verifier_ca_base64 Erreur public_peer_bytes.as_slice, n'est pas 32 bytes"))?;
-        let signature_bytes: Vec<u8, 64> = decode_base64(ca)?;
-        let signature = Signature::from_slice(signature_bytes.as_slice())
-            .map_err(|_| Error::Str("verifier_ca_base64 Erreur Signature::from_slice"))?;
-
-        let verifying_key = VerifyingKey::from_bytes(public_peer_slice)
-            .map_err(|_| Error::Str("verifier_ca_base64 Erreur VerifyingKey::from_bytes"))?;
-
-        verifying_key.verify(&hachage_domaines, &signature)
-            .map_err(|_| Error::Str("verifier_ca_base64 Erreur signature"))
     }
 
     pub fn verifier_derivee<B>(&self, cle_secrete: B) -> Result<(), Error>
@@ -121,7 +113,7 @@ impl SignatureDomaines {
             .map_err(|_| Error::Str("verifier_rechiffrage Erreur conversion cle secrete, taille incorrecte"))?;
         let signing_key = SigningKey::from_bytes(cle_secrete);
 
-        let signature_bytes: Vec<u8, 64> = decode_base64(&self.signature_secrete)?;
+        let signature_bytes: Vec<u8, 64> = decode_base64(&self.signature)?;
         let signature = Signature::from_slice(signature_bytes.as_slice())
             .map_err(|_| Error::Str("verifier_rechiffrage Erreur Signature::from_slice"))?;
 
@@ -132,7 +124,7 @@ impl SignatureDomaines {
     /// Retourne la valeur blake2s de la signature secrete encodee en base58btc.
     /// Cette valeur peut etre utilisee comme reference unique pour la cle.
     pub fn get_cle_ref(&self) -> Result<String<60>, Error> {
-        let signature_secrete: Vec<u8, 64> = decode_base64(&self.signature_secrete)?;
+        let signature_secrete: Vec<u8, 64> = decode_base64(&self.signature)?;
         let mut hachage_signature_secrete = [0u8; 32];
         let mut hacheur = HacheurBlake2s256::new();
         hacheur.update(signature_secrete.as_slice());
@@ -143,7 +135,7 @@ impl SignatureDomaines {
     }
 }
 
-fn hacher_domaines(domaines_vec: &Vec<String<32>, 4>) -> Result<[u8; 32], Error> {
+fn hacher_domaines(domaines_vec: &Vec<String<TAILLE_DOMAINE_STR>, 4>) -> Result<[u8; 32], Error> {
     let domaines_string = serde_json::to_string(&domaines_vec)?;
     let mut hachage_domaines = [0u8; 32];
     let mut hacheur = HacheurBlake2s256::new();
@@ -204,16 +196,16 @@ mod maitredescles_tests {
         let cle_dechiffree = b"12345678901234567890123456789012".as_slice();
         let signature = SignatureDomaines::signer_ed25519(
             &domaines, cle_peer.try_into().unwrap(), cle_dechiffree.try_into().unwrap()).unwrap();
-        info!("Signature {:?}", signature);
+        info!("Signature\n{}", serde_json::to_string_pretty(&signature).unwrap());
 
-        assert_eq!("G/LIt+VgdhpkfkGavFgxbDDDzyHRUJPm2E7zZaxuB/mxiF15wYnq+MuTj8MjoMOk6zkauTmqfu+e9UL3i8bCAQ", signature.signature_ca.as_ref().unwrap().as_str());
-        assert_eq!("2XvfMHgrlOV6q1BH4IGNzi+79lWJb+/l5VCfNcuGMpmT0kpj5MtRMA5ImNAASJyosdMS8e7Mds6N6OfA7Xy1Dw", signature.signature_secrete.as_str());
+        // assert_eq!("G/LIt+VgdhpkfkGavFgxbDDDzyHRUJPm2E7zZaxuB/mxiF15wYnq+MuTj8MjoMOk6zkauTmqfu+e9UL3i8bCAQ", signature.signature_ca.as_ref().unwrap().as_str());
+        assert_eq!("2XvfMHgrlOV6q1BH4IGNzi+79lWJb+/l5VCfNcuGMpmT0kpj5MtRMA5ImNAASJyosdMS8e7Mds6N6OfA7Xy1Dw", signature.signature.as_str());
 
         // Convertir la cle peer privee en cle publique base64. Verifier la signature.
         let peer_signing_key = SigningKey::from_bytes(cle_peer.try_into().unwrap());
         let verifying_key = peer_signing_key.verifying_key();
         let string_verifying_key: String<50> = encode_base64(verifying_key.as_bytes()).unwrap();
-        signature.verifier_ca_base64(string_verifying_key).unwrap();
+        // signature.verifier_ca_base64(string_verifying_key).unwrap();
 
         // Verifier la signature avec la cle derivee (dechiffree)
         signature.verifier_derivee(cle_dechiffree).unwrap();
@@ -237,9 +229,9 @@ mod maitredescles_tests {
         let verifying_key = peer_signing_key.verifying_key();
         let string_verifying_key: String<50> = encode_base64(verifying_key.as_bytes()).unwrap();
 
-        if let Err(Error::Str(message)) = signature.verifier_ca_base64(string_verifying_key) {
-            assert_eq!("verifier_ca_base64 Erreur signature", message);
-        } else { panic!("signature doit etre invalide") }
+        // if let Err(Error::Str(message)) = signature.verifier_ca_base64(string_verifying_key) {
+        //     assert_eq!("verifier_ca_base64 Erreur signature", message);
+        // } else { panic!("signature doit etre invalide") }
 
         // Verifier la signature avec la cle derivee (dechiffree)
         if let Err(Error::Str(message)) = signature.verifier_derivee(cle_dechiffree) {
