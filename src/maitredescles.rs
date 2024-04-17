@@ -17,6 +17,7 @@ pub const TAILLE_DOMAINE_STR: usize = 40;
 #[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
 #[repr(i32)]
 pub enum SignatureDomainesVersion {
+    NonSigne = 0,
     Version1 = 1,
 }
 
@@ -29,9 +30,9 @@ pub struct SignatureDomaines {
 
     pub version: SignatureDomainesVersion,
 
-    /// Peer public X25519, represente la cle chiffree pour le CA, format base64.
-    /// Deriver le secret en utilisant la cle privee X25519 du CA + blake2s.
-    pub peer_ca: Option<String<50>>,
+    /// Cle dechiffrable par le CA.
+    /// Utilise les formats de chiffrage reconnus pour le CA. Voir x25519::FormatCleAsymmetrique
+    pub ca: Option<String<150>>,
 
     /// Signature des domaines en utilisant la cle secrete
     pub signature: String<96>,
@@ -97,7 +98,7 @@ impl SignatureDomaines {
         Ok(Self {
             domaines: domaines_vec,
             version: SignatureDomainesVersion::Version1,
-            peer_ca: Some(peer_ca),
+            ca: Some(peer_ca),
             signature: signature_secrete_string,
         })
     }
@@ -133,7 +134,7 @@ impl SignatureDomaines {
     }
 
     pub fn dechiffrer_ca(&self, cle_privee_ca: &PKey<Private>) -> Result<CleSecreteX25519, Error> {
-        let cle_chiffree = match self.peer_ca.as_ref() {
+        let cle_chiffree = match self.ca.as_ref() {
             Some(inner) => inner,
             None => Err(Error::Str("SignatureDomaines.dechiffrer_ca peer_ca est None"))?
         };
