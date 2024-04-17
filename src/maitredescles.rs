@@ -1,4 +1,4 @@
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier};
 use heapless::{Vec, String};
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
@@ -8,7 +8,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::error::Error;
 use crate::hachages::{HacheurBlake2s256, HacheurInterne};
-use crate::x25519::convertir_public_ed25519_to_x25519_openssl;
+use crate::x25519::{CleSecreteX25519, dechiffrer_asymmetrique_ed25519};
 
 pub const VERSION_1: i32 = 1;   // Signature ed25519
 
@@ -29,8 +29,8 @@ pub struct SignatureDomaines {
 
     pub version: SignatureDomainesVersion,
 
-    /// Peer public Ed25519, represente la cle chiffree pour le CA, format base64.
-    /// Doit etre converti en X25519 pour deriver le secret en utilisant la cle privee X25519 du CA + blake2s.
+    /// Peer public X25519, represente la cle chiffree pour le CA, format base64.
+    /// Deriver le secret en utilisant la cle privee X25519 du CA + blake2s.
     pub peer_ca: Option<String<50>>,
 
     /// Signature des domaines en utilisant la cle secrete
@@ -67,7 +67,7 @@ impl SignatureDomaines {
     //     })
     // }
 
-    pub fn signer_ed25519<S>(domaines: &std::vec::Vec<S>, peer_prive: &[u8; 32], cle_secrete: &[u8; 32])
+    pub fn signer_ed25519<S>(domaines: &std::vec::Vec<S>, peer_public: &[u8; 32], cle_secrete: &[u8; 32])
                              -> Result<Self, Error>
         where S: AsRef<str>
     {
@@ -90,10 +90,8 @@ impl SignatureDomaines {
         let signature_secrete_string = signer_hachage(cle_secrete, hachage_domaines.as_slice())?;
 
         // Conserver le peer public - devient la methode pour restaurer la cle avec le CA
-        let cle_private_ed25519 = PKey::private_key_from_raw_bytes(peer_prive, Id::ED25519)?;
-        let cle_public_ed25519 = cle_private_ed25519.raw_public_key()?;
-        let cle_public_base64 = base64_nopad.encode(cle_public_ed25519);
-        let peer_ca = cle_public_base64.as_str().try_into()
+        let cle_publique_base64 = base64_nopad.encode(peer_public);
+        let peer_ca = cle_publique_base64.as_str().try_into()
             .map_err(|_| Error::Str("SignatureDomaines.signer_ed25519 Erreur peer_ca >50 chars"))?;
 
         Ok(Self {
@@ -132,6 +130,16 @@ impl SignatureDomaines {
 
         let val = multibase::encode(Base::Base58Btc, hachage_signature_secrete);
         Ok(val.as_str().try_into().map_err(|_| Error::Str("Erreur conversion en String pour get_cle_ref"))?)
+    }
+
+    pub fn dechiffrer_ca(&self, cle_privee_ca: &PKey<Private>) -> Result<CleSecreteX25519, Error> {
+        let cle_chiffree = match self.peer_ca.as_ref() {
+            Some(inner) => inner,
+            None => Err(Error::Str("SignatureDomaines.dechiffrer_ca peer_ca est None"))?
+        };
+        let cle_chiffre_bytes = base64_nopad.decode(cle_chiffree)
+            .map_err(|_| Error::Str("SignatureDomaines.dechiffrer_ca Erreur base64_nopad.decode de la cle chiffree"))?;
+        dechiffrer_asymmetrique_ed25519(cle_chiffre_bytes.as_slice(), cle_privee_ca)
     }
 }
 
@@ -187,6 +195,7 @@ fn decode_base64<const L: usize, S>(valeur: S) -> Result<Vec<u8, L>, Error>
 #[cfg(test)]
 mod maitredescles_tests {
     use log::info;
+    use crate::x25519::deriver_asymetrique_ed25519;
     use super::*;
 
     #[test_log::test]
@@ -198,14 +207,12 @@ mod maitredescles_tests {
             &domaines, cle_peer.try_into().unwrap(), cle_dechiffree.try_into().unwrap()).unwrap();
         info!("Signature\n{}", serde_json::to_string_pretty(&signature).unwrap());
 
-        // assert_eq!("G/LIt+VgdhpkfkGavFgxbDDDzyHRUJPm2E7zZaxuB/mxiF15wYnq+MuTj8MjoMOk6zkauTmqfu+e9UL3i8bCAQ", signature.signature_ca.as_ref().unwrap().as_str());
         assert_eq!("2XvfMHgrlOV6q1BH4IGNzi+79lWJb+/l5VCfNcuGMpmT0kpj5MtRMA5ImNAASJyosdMS8e7Mds6N6OfA7Xy1Dw", signature.signature.as_str());
 
         // Convertir la cle peer privee en cle publique base64. Verifier la signature.
         let peer_signing_key = SigningKey::from_bytes(cle_peer.try_into().unwrap());
         let verifying_key = peer_signing_key.verifying_key();
         let string_verifying_key: String<50> = encode_base64(verifying_key.as_bytes()).unwrap();
-        // signature.verifier_ca_base64(string_verifying_key).unwrap();
 
         // Verifier la signature avec la cle derivee (dechiffree)
         signature.verifier_derivee(cle_dechiffree).unwrap();
@@ -229,10 +236,6 @@ mod maitredescles_tests {
         let verifying_key = peer_signing_key.verifying_key();
         let string_verifying_key: String<50> = encode_base64(verifying_key.as_bytes()).unwrap();
 
-        // if let Err(Error::Str(message)) = signature.verifier_ca_base64(string_verifying_key) {
-        //     assert_eq!("verifier_ca_base64 Erreur signature", message);
-        // } else { panic!("signature doit etre invalide") }
-
         // Verifier la signature avec la cle derivee (dechiffree)
         if let Err(Error::Str(message)) = signature.verifier_derivee(cle_dechiffree) {
             assert_eq!("verifier_rechiffrage Erreur signature", message);
@@ -249,5 +252,30 @@ mod maitredescles_tests {
 
         let cle_ref = signature.get_cle_ref().unwrap();
         assert_eq!("z6cji3TFvG1ovBUKGdEtc9dbXdogn4k4WvPdX3CLt7vPf", cle_ref.as_str());
+    }
+
+    #[test_log::test]
+    fn test_dechiffrage_ca() {
+        let domaines = vec!["domaine1"];
+
+        // Simuler une cle CA. Utiliser la partie publique pour deriver un secret.
+        let cle_private_ca = PKey::private_key_from_raw_bytes(b"34567890123456789012345678901234".as_slice(), Id::ED25519).unwrap();
+        let cle_public_ca = PKey::public_key_from_raw_bytes(cle_private_ca.raw_public_key().unwrap().as_slice(), Id::ED25519).unwrap();
+
+        // Creer une cle secrete derivee du CA.
+        let cle_derivee = deriver_asymetrique_ed25519(&cle_public_ca).unwrap();
+        let public_peer = &cle_derivee.public_peer;
+        let cle_secrete = &cle_derivee.secret;
+
+        // Signer les domaines
+        let mut signature = SignatureDomaines::signer_ed25519(
+            &domaines, public_peer, &cle_secrete.0).unwrap();
+
+        // Utiliser la cle CA privee pour dechiffrer peer_ca.
+        let cle_dechiffree = signature.dechiffrer_ca(&cle_private_ca).unwrap();
+        let cle_secrete_slice = cle_secrete.0.as_slice();
+        let cle_dechiffree_slice = &cle_dechiffree.0[..];
+
+        assert_eq!(cle_secrete.0.as_slice(), cle_dechiffree.0.as_slice());
     }
 }
