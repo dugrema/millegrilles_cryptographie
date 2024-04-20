@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
 
-use crate::chiffrage::{CleSecrete, FormatChiffrage, formatchiffragestr};
+use crate::chiffrage::{CleSecrete, FormatChiffrage, optionformatchiffragestr};
 use crate::error::Error;
 use crate::messages_structs::DechiffrageInterMillegrilleOwned;
 use crate::x25519::{chiffrer_asymmetrique_ed25519, dechiffrer_asymmetrique_ed25519};
@@ -271,10 +271,12 @@ pub struct CleSecreteSerialisee {
     #[zeroize(skip)]
     pub cle_id: Option<heapless::String<128>>,
 
+    // Les champs suivants sont utilises pour supporter l'ancienne methode de dechiffrage.
+
     /// Format de chiffrage.
-    #[serde(with="formatchiffragestr")]
+    #[serde(default, with="optionformatchiffragestr")]
     #[zeroize(skip)]
-    pub format: FormatChiffrage,
+    pub format: Option<FormatChiffrage>,
 
     /// Nonce ou header selon l'algorithme.
     #[zeroize(skip)]
@@ -289,7 +291,7 @@ pub struct CleSecreteSerialisee {
 impl CleSecreteSerialisee {
 
     pub fn from_cle_secrete<const C: usize, I, S, V>(
-        cle_secrete: CleSecrete<C>, cle_id: Option<I>, format: FormatChiffrage, nonce: Option<S>, verification: Option<V>
+        cle_secrete: CleSecrete<C>, cle_id: Option<I>, format: Option<FormatChiffrage>, nonce: Option<S>, verification: Option<V>
     )
         -> Result<Self, Error>
         where I: AsRef<str>, S: AsRef<str>, V: AsRef<str>
@@ -458,7 +460,7 @@ mod chiffrage_mgs4_tests {
         let cle_secrete = CleSecrete(*cle_bytes);
         let nonce = "abcd1234";
         let verification = "efgh5678";
-        let cle = CleSecreteSerialisee::from_cle_secrete(cle_secrete, None::<&str>, FormatChiffrage::MGS4, Some(nonce), Some(verification)).unwrap();
+        let cle = CleSecreteSerialisee::from_cle_secrete(cle_secrete, None::<&str>, Some(FormatChiffrage::MGS4), Some(nonce), Some(verification)).unwrap();
         assert_eq!("MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE", cle.cle_secrete_base64);
         let cle_string = serde_json::to_string(&cle).unwrap();
         info!("Cle serialisee:\n{}", cle_string);

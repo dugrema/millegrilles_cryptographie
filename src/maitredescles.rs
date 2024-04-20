@@ -1,4 +1,4 @@
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier};
+use ed25519_dalek::{Signature, Signer, SigningKey};
 use heapless::{Vec, String};
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
@@ -17,7 +17,7 @@ pub const TAILLE_DOMAINE_STR: usize = 40;
 #[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
 #[repr(i32)]
 pub enum SignatureDomainesVersion {
-    NonSigne = 0,
+    NonSigne = 0,   // Pour backward compatibility, utilise le hachage bytes dans la signature
     Version1 = 1,
 }
 
@@ -106,31 +106,42 @@ impl SignatureDomaines {
     pub fn verifier_derivee<B>(&self, cle_secrete: B) -> Result<(), Error>
         where B: AsRef<[u8]>
     {
-        let hachage_domaines = hacher_domaines(&self.domaines)?;
+        match self.version {
+            SignatureDomainesVersion::NonSigne => Ok(()),  // Aucune verification possible
+            SignatureDomainesVersion::Version1 => {
+                let hachage_domaines = hacher_domaines(&self.domaines)?;
 
-        let cle_secrete = cle_secrete.as_ref().try_into()
-            .map_err(|_| Error::Str("verifier_rechiffrage Erreur conversion cle secrete, taille incorrecte"))?;
-        let signing_key = SigningKey::from_bytes(cle_secrete);
+                let cle_secrete = cle_secrete.as_ref().try_into()
+                    .map_err(|_| Error::Str("verifier_rechiffrage Erreur conversion cle secrete, taille incorrecte"))?;
+                let signing_key = SigningKey::from_bytes(cle_secrete);
 
-        let signature_bytes: Vec<u8, 64> = decode_base64(&self.signature)?;
-        let signature = Signature::from_slice(signature_bytes.as_slice())
-            .map_err(|_| Error::Str("verifier_rechiffrage Erreur Signature::from_slice"))?;
+                let signature_bytes: Vec<u8, 64> = decode_base64(&self.signature)?;
+                let signature = Signature::from_slice(signature_bytes.as_slice())
+                    .map_err(|_| Error::Str("verifier_rechiffrage Erreur Signature::from_slice"))?;
 
-        signing_key.verify(&hachage_domaines, &signature)
-            .map_err(|_| Error::Str("verifier_rechiffrage Erreur signature"))
+                signing_key.verify(&hachage_domaines, &signature)
+                    .map_err(|_| Error::Str("verifier_rechiffrage Erreur signature"))
+            }
+        }
     }
 
     /// Retourne la valeur blake2s de la signature secrete encodee en base58btc.
     /// Cette valeur peut etre utilisee comme reference unique pour la cle.
-    pub fn get_cle_ref(&self) -> Result<String<60>, Error> {
-        let signature_secrete: Vec<u8, 64> = decode_base64(&self.signature)?;
-        let mut hachage_signature_secrete = [0u8; 32];
-        let mut hacheur = HacheurBlake2s256::new();
-        hacheur.update(signature_secrete.as_slice());
-        hacheur.finalize_into(&mut hachage_signature_secrete);
+    pub fn get_cle_ref(&self) -> Result<String<96>, Error> {
 
-        let val = multibase::encode(Base::Base58Btc, hachage_signature_secrete);
-        Ok(val.as_str().try_into().map_err(|_| Error::Str("Erreur conversion en String pour get_cle_ref"))?)
+        match self.version {
+            SignatureDomainesVersion::NonSigne => Ok(self.signature.clone()), // La signature est le hachage bytes
+            SignatureDomainesVersion::Version1 => {
+                let signature_secrete: Vec<u8, 64> = decode_base64(&self.signature)?;
+                let mut hachage_signature_secrete = [0u8; 32];
+                let mut hacheur = HacheurBlake2s256::new();
+                hacheur.update(signature_secrete.as_slice());
+                hacheur.finalize_into(&mut hachage_signature_secrete);
+
+                let val = multibase::encode(Base::Base58Btc, hachage_signature_secrete);
+                Ok(val.as_str().try_into().map_err(|_| Error::Str("Erreur conversion en String pour get_cle_ref"))?)
+            }
+        }
     }
 
     pub fn dechiffrer_ca(&self, cle_privee_ca: &PKey<Private>) -> Result<CleSecreteX25519, Error> {
@@ -141,6 +152,57 @@ impl SignatureDomaines {
         let cle_chiffre_bytes = base64_nopad.decode(cle_chiffree)
             .map_err(|_| Error::Str("SignatureDomaines.dechiffrer_ca Erreur base64_nopad.decode de la cle chiffree"))?;
         dechiffrer_asymmetrique_ed25519(cle_chiffre_bytes.as_slice(), cle_privee_ca)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Utilitaires de messagerie et signature pour commandes maitre des cles (reference)
+pub struct SignatureDomainesRef<'a> {
+    /// Liste des domaines supportes pour la cle.
+    pub domaines: Vec<&'a str, 4>,
+
+    pub version: SignatureDomainesVersion,
+
+    /// Cle dechiffrable par le CA.
+    /// Utilise les formats de chiffrage reconnus pour le CA. Voir x25519::FormatCleAsymmetrique
+    pub ca: Option<&'a str>,
+
+    /// Signature des domaines en utilisant la cle secrete
+    pub signature: &'a str,
+}
+
+impl<'a> Into<SignatureDomainesRef<'a>> for &'a SignatureDomaines {
+    fn into(self) -> SignatureDomainesRef<'a> {
+        let domaines = self.domaines.iter().map(|s| s.as_str()).collect();
+
+        SignatureDomainesRef {
+            domaines,
+            version: self.version.clone(),
+            ca: match self.ca.as_ref() { Some(inner) => Some(inner.as_str()), None => None },
+            signature: self.signature.as_str(),
+        }
+    }
+}
+
+impl TryInto<SignatureDomaines> for SignatureDomainesRef<'_> {
+    type Error = Error;
+    fn try_into(self) -> Result<SignatureDomaines, Self::Error> {
+        let mut domaines = Vec::new();
+        for d in self.domaines {
+            let domaine = d.try_into()
+                .map_err(|_| Error::Str("TryInto<SignatureDomaines> Erreur try_into domaine"))?;
+            domaines.push(domaine)
+                .map_err(|_| Error::Str("TryInto<SignatureDomaines> Erreur push domaine"))?;
+        }
+
+        Ok(SignatureDomaines {
+            domaines,
+            version: self.version.clone(),
+            ca: match self.ca.as_ref() {
+                Some(inner) => Some((*inner).try_into().map_err(|_| Error::Str("TryInto<SignatureDomaines> Erreur try_into ca"))?),
+                None => None },
+            signature: self.signature.try_into().map_err(|_| Error::Str("TryInto<SignatureDomaines> Erreur try_into signature"))?,
+        })
     }
 }
 
@@ -213,7 +275,7 @@ mod maitredescles_tests {
         // Convertir la cle peer privee en cle publique base64. Verifier la signature.
         let peer_signing_key = SigningKey::from_bytes(cle_peer.try_into().unwrap());
         let verifying_key = peer_signing_key.verifying_key();
-        let string_verifying_key: String<50> = encode_base64(verifying_key.as_bytes()).unwrap();
+        let _string_verifying_key: String<50> = encode_base64(verifying_key.as_bytes()).unwrap();
 
         // Verifier la signature avec la cle derivee (dechiffree)
         signature.verifier_derivee(cle_dechiffree).unwrap();
@@ -235,7 +297,7 @@ mod maitredescles_tests {
         // Convertir la cle peer privee en cle publique base64. Verifier la signature.
         let peer_signing_key = SigningKey::from_bytes(cle_peer.try_into().unwrap());
         let verifying_key = peer_signing_key.verifying_key();
-        let string_verifying_key: String<50> = encode_base64(verifying_key.as_bytes()).unwrap();
+        let _string_verifying_key: String<50> = encode_base64(verifying_key.as_bytes()).unwrap();
 
         // Verifier la signature avec la cle derivee (dechiffree)
         if let Err(Error::Str(message)) = signature.verifier_derivee(cle_dechiffree) {
@@ -269,7 +331,7 @@ mod maitredescles_tests {
         let cle_secrete = &cle_derivee.secret;
 
         // Signer les domaines
-        let mut signature = SignatureDomaines::signer_ed25519(
+        let signature = SignatureDomaines::signer_ed25519(
             &domaines, public_peer, &cle_secrete.0).unwrap();
 
         // Utiliser la cle CA privee pour dechiffrer peer_ca.
@@ -277,6 +339,6 @@ mod maitredescles_tests {
         let cle_secrete_slice = cle_secrete.0.as_slice();
         let cle_dechiffree_slice = &cle_dechiffree.0[..];
 
-        assert_eq!(cle_secrete.0.as_slice(), cle_dechiffree.0.as_slice());
+        assert_eq!(cle_secrete_slice, cle_dechiffree_slice);
     }
 }

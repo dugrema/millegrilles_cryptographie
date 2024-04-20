@@ -56,6 +56,38 @@ pub mod formatchiffragestr {
     }
 }
 
+pub mod optionformatchiffragestr {
+    use serde::{self, Deserialize, Serializer, Deserializer};
+    use serde::de::Error;
+    use crate::chiffrage::FormatChiffrage;
+
+    pub fn serialize<S>(date: &Option<FormatChiffrage>, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        match date {
+            Some(inner) => {
+                let value_str: &str = inner.clone().into();
+                serializer.serialize_str(value_str)
+            },
+            None => serializer.serialize_none()
+        }
+    }
+
+    pub fn deserialize<'de, D>( deserializer: D ) -> Result<Option<FormatChiffrage>, D::Error>
+        where D: Deserializer<'de>,
+    {
+        let option: Option<&'de str> = Option::deserialize(deserializer)?;
+        match option {
+            Some(inner) => match inner.try_into() {
+                Ok(inner) => Ok(Some(inner)),
+                Err(e) => Err(D::Error::custom(format!("valeur FormatChiffrage non supportee : {}", e)))
+            },
+            None => Ok(None)
+        }
+    }
+
+}
+
 #[derive(Clone, PartialEq, Zeroize)]
 #[zeroize(drop)]
 pub struct CleSecrete<const C: usize>(pub [u8; C]);
@@ -92,6 +124,7 @@ pub fn random_bytes<const C: usize>() -> [u8; C] {
 mod ed25519_tests {
     use super::*;
     use log::info;
+    use serde::{Deserialize, Serialize};
 
     #[test_log::test]
     fn test_clesecrete_generer() {
@@ -114,5 +147,22 @@ mod ed25519_tests {
         let rnd_bytes: [u8; NB_BYTES] = random_bytes();
         info!("Resultat random : {:?}", rnd_bytes);
         assert_eq!(NB_BYTES, rnd_bytes.len());
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct TestFormatOption {
+        #[serde(with="optionformatchiffragestr")]
+        format: Option<FormatChiffrage>
+    }
+    #[test_log::test]
+    fn test_formatchiffrage_serialize_option() {
+        let format_some = TestFormatOption { format: Some(FormatChiffrage::MGS4) };
+        let format_none = TestFormatOption { format: None };
+        let some_str = serde_json::to_string(&format_some).unwrap();
+        info!("FormatChiffrage some {}", some_str);
+        let none_str = serde_json::to_string(&format_none).unwrap();
+        info!("FormatChiffrage none {}", none_str);
+        let _format_some_deser: TestFormatOption = serde_json::from_str(some_str.as_str()).unwrap();
+        let _format_none_deser: TestFormatOption = serde_json::from_str(none_str.as_str()).unwrap();
     }
 }
