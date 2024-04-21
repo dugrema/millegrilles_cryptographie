@@ -30,6 +30,7 @@ pub trait CleDechiffrageX25519: CleDechiffrage<X25519_KEY_LEN> {
     fn dechiffrer_x25519(&mut self, cle_dechiffrage: &PKey<Private>) -> Result<(), Error>;
 }
 
+#[cfg(feature="alloc")]
 pub struct CleDechiffrageStruct<const C: usize> {
     /// Cle chiffree encodee en multibase.
     pub cle_chiffree: String,
@@ -48,6 +49,7 @@ pub struct CleDechiffrageStruct<const C: usize> {
     pub verification: Option<String>,
 }
 
+#[cfg(feature="alloc")]
 impl<const C: usize> CleDechiffrage<C> for CleDechiffrageStruct<C> {
     fn cle_chiffree(&self) -> &str { self.cle_chiffree.as_str() }
     fn cle_secrete(&self) -> Option<&CleSecrete<C>> { self.cle_secrete.as_ref() }
@@ -78,6 +80,7 @@ impl CleDechiffrageX25519 for CleDechiffrageX25519Impl {
 
 /// Structure qui conserve une cle chiffree pour un fingerprint de certificat
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(feature="alloc")]
 pub struct FingerprintCleChiffree {
     /// Fingerprint du certificat correspondant a la cle chiffree.
     pub fingerprint: String,
@@ -349,6 +352,32 @@ impl CleSecreteSerialisee {
         cle_vec.zeroize();
 
         Ok(cle_secrete)
+    }
+
+    #[cfg(feature="alloc")]
+    pub fn set_symmetrique<S,T>(&mut self, format: Option<FormatChiffrage>, nonce: Option<S>, verification: Option<T>)
+        -> Result<(), Error>
+        where S: AsRef<str>, T: AsRef<str>
+    {
+        self.format = format;
+
+        if let Some(nonce) = nonce {
+            let val = nonce.as_ref().try_into()
+                .map_err(|_|Error::Str("ajouter_symmetrique Erreur nonce.try_into heapless::String<64>"))?;
+            self.nonce = Some(val);
+        } else {
+            self.nonce = None;
+        }
+
+        if let Some(verification) = verification {
+            let val = verification.as_ref().try_into()
+                .map_err(|_|Error::Str("ajouter_symmetrique Erreur verification.try_into heapless::String<128>"))?;
+            self.verification = Some(val);
+        } else {
+            self.verification = None;
+        }
+
+        Ok(())
     }
 }
 

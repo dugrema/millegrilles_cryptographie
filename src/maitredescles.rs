@@ -3,7 +3,7 @@ use heapless::{Vec, String};
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
 use multibase::Base;
-use openssl::pkey::{Id, PKey, Private};
+use openssl::pkey::{PKey, Private};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::error::Error;
