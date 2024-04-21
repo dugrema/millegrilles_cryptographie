@@ -258,6 +258,7 @@ fn decode_base64<const L: usize, S>(valeur: S) -> Result<Vec<u8, L>, Error>
 #[cfg(test)]
 mod maitredescles_tests {
     use log::info;
+    use openssl::pkey::Id;
     use crate::x25519::deriver_asymetrique_ed25519;
     use super::*;
 
