@@ -409,7 +409,10 @@ impl<'a, const C: usize> MessageMilleGrillesRef<'a, C> {
         let decipher = DecipherMgs4::new(&cle_dechiffrage)?;
         let data_chiffre = base64_nopad.decode(self.contenu_escaped)
             .map_err(|e| Error::String(format!("MessageMilleGrillesRef.dechiffrer Erreur decodage base64 du contenu : {:?}", e)))?;
-        let data_dechiffre = decipher.gz_to_vec(data_chiffre.as_slice())?;
+        let data_dechiffre = match decipher.gz_to_vec(data_chiffre.as_slice()) {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::String(format!("MessageMilleGrillesRef.dechiffrer Erreur decompreesion gzip du contenu : {:?}", e)))?
+        };
         Ok(serde_json::from_slice(data_dechiffre.as_slice())?)
         // debug!("Data dechiffre vec (len: {}):\n{:?}", data_dechiffre.len(), data_dechiffre);
         // let data_dechiffre_str = from_utf8(data_dechiffre.as_slice()).unwrap();

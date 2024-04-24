@@ -1,6 +1,9 @@
+use std::fmt::Formatter;
 use serde_repr::{Deserialize_repr, Serialize_repr};
+use serde::de::{Error, Visitor};
 use rand;
 use rand::Rng;
+use serde::Deserializer;
 use zeroize::Zeroize;
 
 //pub const MAXLEN_DATA_CHIFFRE: usize = 1024 * 1024 * 3;
@@ -56,10 +59,63 @@ pub mod formatchiffragestr {
     }
 }
 
+struct FormatChiffrageOptionVisitor;
+
+impl<'de> Visitor<'de> for FormatChiffrageOptionVisitor {
+    type Value = Option<FormatChiffrage>;
+
+    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        formatter.write_str("string ou u8 pour FormatChiffrage")
+    }
+
+    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E> where E: Error {
+        self.visit_u8(v as u8)
+    }
+
+    fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E> where E: Error {
+        match v {
+            4 => Ok(Some(FormatChiffrage::MGS4)),
+            _ => Err(Error::custom("Format non supporte"))
+        }
+    }
+
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> where E: Error {
+        self.visit_u8(v as u8)
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> where E: Error {
+        Ok(Some(
+            FormatChiffrage::try_from(v)
+                .map_err(|_| Error::custom("visit_str Format chiffrage non supporte"))?
+        ))
+    }
+
+    fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E> where E: Error {
+        Ok(Some(
+            FormatChiffrage::try_from(v)
+                .map_err(|_| Error::custom("visit_str Format chiffrage non supporte"))?
+        ))
+    }
+
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E> where E: Error {
+        Ok(Some(
+            FormatChiffrage::try_from(v.as_str())
+                .map_err(|_| Error::custom("visit_str Format chiffrage non supporte"))?
+        ))
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E> where E: Error {
+        Ok(None)
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error> where D: Deserializer<'de> {
+        deserializer.deserialize_any(self)
+    }
+}
+
 pub mod optionformatchiffragestr {
-    use serde::{self, Deserialize, Serializer, Deserializer};
-    use serde::de::Error;
-    use crate::chiffrage::FormatChiffrage;
+    use serde::{self, Serializer, Deserializer};
+    use crate::chiffrage::{FormatChiffrage, FormatChiffrageOptionVisitor};
 
     pub fn serialize<S>(date: &Option<FormatChiffrage>, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer
@@ -76,14 +132,14 @@ pub mod optionformatchiffragestr {
     pub fn deserialize<'de, D>( deserializer: D ) -> Result<Option<FormatChiffrage>, D::Error>
         where D: Deserializer<'de>,
     {
-        let option: Option<&'de str> = Option::deserialize(deserializer)?;
-        match option {
-            Some(inner) => match inner.try_into() {
-                Ok(inner) => Ok(Some(inner)),
-                Err(e) => Err(D::Error::custom(format!("valeur FormatChiffrage non supportee : {}", e)))
-            },
-            None => Ok(None)
-        }
+        deserializer.deserialize_option(FormatChiffrageOptionVisitor)
+        // match option {
+        //     Some(inner) => match inner.try_into() {
+        //         Ok(inner) => Ok(Some(inner)),
+        //         Err(e) => Err(D::Error::custom(format!("valeur FormatChiffrage non supportee : {}", e)))
+        //     },
+        //     None => Ok(None)
+        // }
     }
 
 }
@@ -158,11 +214,16 @@ mod ed25519_tests {
     fn test_formatchiffrage_serialize_option() {
         let format_some = TestFormatOption { format: Some(FormatChiffrage::MGS4) };
         let format_none = TestFormatOption { format: None };
+
         let some_str = serde_json::to_string(&format_some).unwrap();
         info!("FormatChiffrage some {}", some_str);
+        let _format_some_deser: TestFormatOption = serde_json::from_str(some_str.as_str()).unwrap();
+
         let none_str = serde_json::to_string(&format_none).unwrap();
         info!("FormatChiffrage none {}", none_str);
-        let _format_some_deser: TestFormatOption = serde_json::from_str(some_str.as_str()).unwrap();
         let _format_none_deser: TestFormatOption = serde_json::from_str(none_str.as_str()).unwrap();
+
+        let some_u8 = "{\"format\": 4}";
+        let _format_u8: TestFormatOption = serde_json::from_str(some_u8).unwrap();
     }
 }
