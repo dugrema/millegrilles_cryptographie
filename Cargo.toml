@@ -1,6 +1,6 @@
 [package]
 name = "millegrilles_cryptographie"
-version = "2024.3.3"
+version = "2024.4.0"
 edition = "2021"
 
 [features]
@@ -19,24 +19,24 @@ log = { version = "0.4"}
 chrono = { version = "0.4", default-features = false }
 
 # String representations
-serde = { version = "1.0.197", default-features = false, features = ["derive"] }
-serde_json = { version = "1.0.114", optional = true }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0", optional = true }
 serde-json-core = "0.5"
 serde_repr = "0.1"
 hex = { version = "0.4", default-features = false }
 base64 = { version =  "0.22", default-features = false }
 multibase = { version = "0.9", default-features = false }
-multihash = { version = "0.19.1", default-features = false }
+multihash = { version = "0.19", default-features = false }
 
 # Hashing
 blake2 = { version = "0.10", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 
 # openssl (x509)
-openssl = { version = "0.10.64", features = ["vendored"], optional = true }
+openssl = { version = "0.10", features = ["vendored"], optional = true }
 
 # Encryption
-rand = { version = "0.9.0-alpha.0", optional = true }
+rand = { version = "0.9.0-alpha.1", optional = true }
 dryoc = { version = "0.5.3", optional = true }
 chacha20poly1305 = { version = "0.10", default-features = false }
 # x25519-dalek = { version = "2.0", default-features = false }
@@ -47,7 +47,7 @@ flate2 = { version = "1.0", optional = true }
 ed25519-dalek = { version = "2.1", default-features = false }
 
 # x509
-x509-parser = { version = "0.16.0", optional = true }
+x509-parser = { version = "0.16", optional = true }
 
 [dev-dependencies]
 test-log = "0.2"
