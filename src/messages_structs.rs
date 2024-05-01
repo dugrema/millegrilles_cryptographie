@@ -2075,5 +2075,8 @@ mod messages_structs_tests {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_6.as_bytes());
         buffer.parse().unwrap();
+
+        let mut message_owned = buffer.parse_to_owned().unwrap();
+        message_owned.verifier_signature().unwrap();
     }
 }
