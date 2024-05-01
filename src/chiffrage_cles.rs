@@ -164,6 +164,7 @@ impl<const K: usize> Into<DechiffrageInterMillegrilleOwned> for CleChiffrageStru
             hachage: None,
             header: None,
             nonce: self.nonce,
+            signature: None,
             verification: self.verification,
         }
     }

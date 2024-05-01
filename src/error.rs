@@ -9,6 +9,7 @@ use openssl::error::ErrorStack;
 use multibase;
 #[cfg(feature = "dryoc")]
 use dryoc;
+use hex::FromHexError;
 
 #[derive(Debug)]
 pub enum Error {
@@ -23,13 +24,16 @@ pub enum Error {
     #[cfg(feature = "dryoc")]
     Dryoc(dryoc::Error),
     SerdeJson(serde_json::Error),
+    SerdeJsonCoreSer(serde_json_core::ser::Error),
     #[cfg(feature = "std")]
     Io(std::io::Error),
     Utf8Error(Utf8Error),
     FromUtf8(FromUtf8Error),
+    FromHex(FromHexError),
     #[cfg(feature = "std")]
     String(String),
     Str(&'static str),
+    Ed25519Dalek(ed25519_dalek::ed25519::Error),
 }
 
 impl fmt::Display for Error {
@@ -116,5 +120,23 @@ impl From<&str> for Error {
 impl From<Utf8Error> for Error {
     fn from(value: Utf8Error) -> Self {
         Self::Utf8Error(value)
+    }
+}
+
+impl From<serde_json_core::ser::Error> for Error {
+    fn from(value: serde_json_core::ser::Error) -> Self {
+        Self::SerdeJsonCoreSer(value)
+    }
+}
+
+impl From<FromHexError> for Error {
+    fn from(value: FromHexError) -> Self {
+        Self::FromHex(value)
+    }
+}
+
+impl From<ed25519_dalek::ed25519::Error> for Error {
+    fn from(value: ed25519_dalek::ed25519::Error) -> Self {
+        Self::Ed25519Dalek(value)
     }
 }

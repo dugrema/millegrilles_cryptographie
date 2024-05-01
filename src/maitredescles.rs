@@ -24,18 +24,19 @@ pub enum SignatureDomainesVersion {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// Utilitaires de messagerie et signature pour commandes maitre des cles
 /// La liste des domaines est extraite en json (e.g. ["domaine1","domaine2",...]) et signee.
+/// Note : les champs doivent etre en ordre alphabetique pour la verification de signature message_struct
 pub struct SignatureDomaines {
-    /// Liste des domaines supportes pour la cle.
-    pub domaines: Vec<String<TAILLE_DOMAINE_STR>, 4>,
-
-    pub version: SignatureDomainesVersion,
-
     /// Cle dechiffrable par le CA.
     /// Utilise les formats de chiffrage reconnus pour le CA. Voir x25519::FormatCleAsymmetrique
     pub ca: Option<String<150>>,
 
+    /// Liste des domaines supportes pour la cle.
+    pub domaines: Vec<String<TAILLE_DOMAINE_STR>, 4>,
+
     /// Signature des domaines en utilisant la cle secrete
     pub signature: String<96>,
+
+    pub version: SignatureDomainesVersion,
 }
 
 impl SignatureDomaines {
