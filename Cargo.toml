@@ -1,6 +1,6 @@
 [package]
 name = "millegrilles_cryptographie"
-version = "2024.4.5"
+version = "2024.4.6"
 edition = "2021"
 
 [features]

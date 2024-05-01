@@ -4,7 +4,7 @@ use flate2::write::GzEncoder;
 use flate2::read::GzDecoder;
 use std::io::{Read, Write};
 use std::sync::Arc;
-use multibase::Base;
+// use multibase::Base;
 use openssl::pkey::{PKey, Private};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -32,7 +32,7 @@ pub trait CleDechiffrageX25519: CleDechiffrage<X25519_KEY_LEN> {
 
 #[cfg(feature="alloc")]
 pub struct CleDechiffrageStruct<const C: usize> {
-    /// Cle chiffree encodee en multibase.
+    /// Cle chiffree encodee base64 no pad
     pub cle_chiffree: String,
 
     /// Cle secrete dechiffree.
@@ -59,10 +59,12 @@ impl<const C: usize> CleDechiffrage<C> for CleDechiffrageStruct<C> {
 }
 
 fn dechiffrer_x25519(cle: &mut CleDechiffrageStruct<X25519_KEY_LEN>, cle_dechiffrage: &PKey<Private>) -> Result<(), Error> {
-    let cle_chiffree_vec = match multibase::decode(&cle.cle_chiffree) {
-        Ok(inner) => inner.1,
-        Err(e) => Err(Error::Multibase(e))?
-    };
+    // let cle_chiffree_vec = match multibase::decode(&cle.cle_chiffree) {
+    //     Ok(inner) => inner.1,
+    //     Err(e) => Err(Error::Multibase(e))?
+    // };
+    let cle_chiffree_vec = base64_nopad.decode(&cle.cle_chiffree)
+        .map_err(|_| Error::Str("dechiffrer_x25519 Erreur base64_nopad.decode cle"))?;
 
     let cle_dechiffree = dechiffrer_asymmetrique_ed25519(cle_chiffree_vec.as_slice(), cle_dechiffrage)?;
     cle.cle_secrete = Some(cle_dechiffree);
@@ -84,7 +86,7 @@ impl CleDechiffrageX25519 for CleDechiffrageX25519Impl {
 pub struct FingerprintCleChiffree {
     /// Fingerprint du certificat correspondant a la cle chiffree.
     pub fingerprint: String,
-    /// Cle chiffree encodee en multibase
+    /// Cle chiffree encodee en base64 no padding
     pub cle_chiffree: String,
 }
 
@@ -104,7 +106,7 @@ pub struct CleChiffrageStruct<const K: usize> {
     /// Cle secrete dechiffree.
     pub cle_secrete: CleSecrete<K>,
 
-    /// Cle chiffree encodee en multibase.
+    /// Cle chiffree encodee base64 no padding
     pub cles_chiffrees: Vec<FingerprintCleChiffree>,
 
     /// Format de chiffrage.
@@ -137,7 +139,9 @@ impl<const C: usize> CleChiffrageX25519 for CleChiffrageStruct<C> {
             let secret_chiffre = chiffrer_asymmetrique_ed25519(&self.cle_secrete.0, &cle_ed25519_openssl)?;
 
             // Encoder en multibase base64
-            let secret_chiffre_string = multibase::encode(Base::Base64, &secret_chiffre);
+            // let secret_chiffre_string = multibase::encode(Base::Base64, &secret_chiffre);
+            // Encoder en base64 no pad
+            let secret_chiffre_string = base64_nopad.encode(&secret_chiffre);
 
             // Ajouter au Vec
             let fingerprint = cle.fingerprint()?;
@@ -461,7 +465,8 @@ mod chiffrage_mgs4_tests {
         let fingerprint = enveloppe_1.fingerprint().unwrap();
         cle_chiffrage.cles_chiffrees.push(FingerprintCleChiffree {
             fingerprint: fingerprint.clone(),
-            cle_chiffree: multibase::encode(Base::Base64, cle_secrete.public_peer)
+            // cle_chiffree: multibase::encode(Base::Base64, cle_secrete.public_peer)
+            cle_chiffree: base64_nopad.encode(cle_secrete.public_peer)
         });
 
         info!("Cles chiffrees : {:?}", cle_chiffrage.cles_chiffrees);

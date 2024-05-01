@@ -97,7 +97,9 @@ impl<'a> DechiffrageInterMillegrille<'a> {
         };
 
         // Dechiffrer la cle
-        let cle_chiffree_bytes = multibase::decode(cle_chiffree)?.1;
+        // let cle_chiffree_bytes = multibase::decode(cle_chiffree)?.1;
+        let cle_chiffree_bytes = base64_nopad.decode(cle_chiffree)
+            .map_err(|_| Error::Str("DechiffrageInterMillegrille.to_cle_dechiffrage Erreur base64_nopad.decode"))?;
         let cle_secrete = dechiffrer_asymmetrique_ed25519(
             cle_chiffree_bytes.as_slice(), &enveloppe_privee.cle_privee)?;
 
