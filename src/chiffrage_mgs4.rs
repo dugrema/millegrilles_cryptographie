@@ -5,6 +5,7 @@ use dryoc::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL,
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE
 };
+use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
 use log::debug;
 use multibase::{Base, encode};
 
@@ -158,7 +159,7 @@ impl Cipher<32> for CipherMgs4 {
             cle_secrete,
             cles_chiffrees,
             format: FormatChiffrage::MGS4,
-            nonce: Some(self.header),
+            nonce: Some(self.header[1..].to_string()),
             verification: None,
         };
 
@@ -191,11 +192,11 @@ impl DecipherMgs4 {
         };
 
         let header_vec = match &decipher_data.nonce {
-            Some(inner) => match multibase::decode(inner) {
-                Ok(inner) => inner.1,
-                Err(e) => Err(Error::Multibase(e))?
+            Some(inner) => match base64_nopad.decode(inner) {
+                Ok(inner) => inner,
+                Err(_) => Err(Error::Str("Erreur decodage base64_nopad pour nonce"))?
             },
-            None => Err(Error::Str("Compute tag (verification) manquant"))?
+            None => Err(Error::Str("Nonce manquant"))?
         };
 
         let mut state = State::new();
