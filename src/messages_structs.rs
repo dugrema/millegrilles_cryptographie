@@ -1501,7 +1501,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
                 Err(Error::Str("build_into:E1"))?
             }
         };
-        debug!("Message serialise\n{}", from_utf8(message_vec.as_slice()));
+        debug!("Message serialise\n{}", from_utf8(message_vec.as_slice())?);
 
         // Copier string vers vec
         buffer.clear();
