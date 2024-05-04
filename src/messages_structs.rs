@@ -1590,7 +1590,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
             cles: Some(cles),
             format: format_str.to_string(),
             hachage: Some(resultat_chiffrage.hachage_bytes),
-            header: resultat_chiffrage.cles.nonce.clone(),
+            header: None,
             nonce: resultat_chiffrage.cles.nonce,
             signature: None,
             verification: resultat_chiffrage.cles.verification,

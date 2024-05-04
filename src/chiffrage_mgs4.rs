@@ -146,7 +146,8 @@ impl Cipher<32> for CipherMgs4 {
         let (cle_secrete, cles_chiffrees) = match self.cle_secrete {
             CleSecreteCipher::CleDerivee((fingerprint, cle_derivee)) => {
                 // Encoder la cle derivee (peer)
-                let peer_string = multibase::encode(Base::Base64, cle_derivee.public_peer);
+                // let peer_string = multibase::encode(Base::Base64, cle_derivee.public_peer);
+                let peer_string = base64_nopad.encode(&cle_derivee.public_peer);
                 (cle_derivee.secret, vec![FingerprintCleChiffree {fingerprint, cle_chiffree: peer_string}])
             },
             CleSecreteCipher::CleSecrete(cle) => {
@@ -155,11 +156,12 @@ impl Cipher<32> for CipherMgs4 {
             }
         };
 
+        let nonce = multibase::decode(self.header)?.1;
         let cles = CleChiffrageStruct {
             cle_secrete,
             cles_chiffrees,
             format: FormatChiffrage::MGS4,
-            nonce: Some(self.header[1..].to_string()),
+            nonce: Some(base64_nopad.encode(nonce)),
             verification: None,
         };
 
