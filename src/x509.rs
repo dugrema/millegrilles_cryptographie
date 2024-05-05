@@ -567,11 +567,11 @@ pub struct FingerprintPem {
 }
 
 #[cfg(test)]
-mod messages_structs_tests {
+pub mod messages_structs_tests {
     use super::*;
     use log::info;
 
-    const CERT_1: &str = r#"-----BEGIN CERTIFICATE-----
+    pub const CERT_1: &str = r#"-----BEGIN CERTIFICATE-----
 MIIClDCCAkagAwIBAgIUQuFP9EOrsQuFkWnXEH8UQNZ1EN4wBQYDK2VwMHIxLTAr
 BgNVBAMTJGY4NjFhYWZkLTUyOTctNDA2Zi04NjE3LWY3Yjg4MDlkZDQ0ODFBMD8G
 A1UEChM4emVZbmNScUVxWjZlVEVtVVo4d2hKRnVIRzc5NmVTdkNUV0U0TTQzMml6
@@ -589,7 +589,7 @@ X+Y+lrHe8AHcrpGGtUV8mwwcDsRbw2wtRq2ENceNlQAcwblEkxLvCA==
 -----END CERTIFICATE-----
 "#;
 
-    const CERT_INTER: &str = r#"-----BEGIN CERTIFICATE-----
+    pub const CERT_INTER: &str = r#"-----BEGIN CERTIFICATE-----
 MIIBozCCAVWgAwIBAgIKAnY5ZhNJUlVzaTAFBgMrZXAwFjEUMBIGA1UEAxMLTWls
 bGVHcmlsbGUwHhcNMjQwMTMwMTM1NDU3WhcNMjUwODEwMTM1NDU3WjByMS0wKwYD
 VQQDEyRmODYxYWFmZC01Mjk3LTQwNmYtODYxNy1mN2I4ODA5ZGQ0NDgxQTA/BgNV
@@ -602,7 +602,7 @@ WD5eP7A2XeEr0LbxRPNyaO+Q8fvnjjCKasn97MTPSCXnU/4JbWYK
 -----END CERTIFICATE-----
 "#;
 
-    const CERT_CA: &str = r#"-----BEGIN CERTIFICATE-----
+    pub const CERT_CA: &str = r#"-----BEGIN CERTIFICATE-----
 MIIBQzCB9qADAgECAgoHBykXJoaCCWAAMAUGAytlcDAWMRQwEgYDVQQDEwtNaWxs
 ZUdyaWxsZTAeFw0yMjAxMTMyMjQ3NDBaFw00MjAxMTMyMjQ3NDBaMBYxFDASBgNV
 BAMTC01pbGxlR3JpbGxlMCowBQYDK2VwAyEAnnixameVCZAzfx4dO+L63DOk/34I

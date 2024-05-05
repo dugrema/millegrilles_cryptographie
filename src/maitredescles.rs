@@ -1,14 +1,20 @@
+use std::collections::BTreeMap;
+
+use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD as base64_nopad};
 use ed25519_dalek::{Signature, Signer, SigningKey};
-use heapless::{Vec, String};
-use serde::{Deserialize, Serialize};
-use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
+use heapless::{String, Vec};
 use multibase::Base;
 use openssl::pkey::{PKey, Private};
+use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+use crate::chiffrage::FormatChiffrage;
+use crate::chiffrage_cles::{CleChiffrageX25519, CleChiffrageX25519Impl};
 use crate::error::Error;
 use crate::hachages::{HacheurBlake2s256, HacheurInterne};
-use crate::x25519::{CleSecreteX25519, dechiffrer_asymmetrique_ed25519};
+use crate::messages_structs::DechiffrageInterMillegrilleOwned;
+use crate::x25519::{CleDerivee, CleSecreteX25519, dechiffrer_asymmetrique_ed25519, deriver_asymetrique_ed25519};
+use crate::x509::EnveloppeCertificat;
 
 pub const VERSION_1: i32 = 1;   // Signature ed25519
 
@@ -207,6 +213,47 @@ impl TryInto<SignatureDomaines> for SignatureDomainesRef<'_> {
     }
 }
 
+/// Generer une nouvelle cle secrete avec signature de domaines.
+pub fn generer_cle_avec_ca<D>(domaines: std::vec::Vec<D>, ca: &EnveloppeCertificat, cles_publiques: std::vec::Vec<&EnveloppeCertificat>)
+    -> Result<(DechiffrageInterMillegrilleOwned, CleDerivee), Error>
+    where D: AsRef<str>
+{
+    let cle_derivee = deriver_asymetrique_ed25519(&ca.certificat.public_key()?)?;
+    let signature = SignatureDomaines::signer_ed25519(&domaines, &cle_derivee.public_peer, &cle_derivee.secret.0)?;
+    let cle_id = signature.get_cle_ref()?;
+    let mut cle_impl = CleChiffrageX25519Impl {
+        cle_secrete: cle_derivee.secret.clone(),
+        cles_chiffrees: vec![],
+        format: FormatChiffrage::MGS4,
+        nonce: None,
+        verification: None,
+    };
+
+    // Chiffrer la cle secrete
+    cle_impl.chiffrer_x25519(cles_publiques)?;
+
+    let mut map_cles = BTreeMap::new();
+    for c in cle_impl.cles_chiffrees.into_iter() {
+        map_cles.insert(c.fingerprint, c.cle_chiffree);
+    }
+
+    let format: &str = cle_impl.format.into();
+
+    let dechiffrage = DechiffrageInterMillegrilleOwned {
+        cle_id: Some(cle_id.to_string()),
+        cles: Some(map_cles),
+        format: format.to_string(),
+        hachage: None,
+        header: None,
+        nonce: None,
+        signature: Some(signature),
+        verification: None,
+    };
+
+    Ok((dechiffrage, cle_derivee))
+}
+
+
 fn hacher_domaines(domaines_vec: &Vec<String<TAILLE_DOMAINE_STR>, 4>) -> Result<[u8; 32], Error> {
     let domaines_string = serde_json::to_string(&domaines_vec)?;
     let mut hachage_domaines = [0u8; 32];
@@ -258,9 +305,11 @@ fn decode_base64<const L: usize, S>(valeur: S) -> Result<Vec<u8, L>, Error>
 
 #[cfg(test)]
 mod maitredescles_tests {
-    use log::info;
+    use log::{debug, info};
     use openssl::pkey::Id;
+
     use crate::x25519::deriver_asymetrique_ed25519;
+
     use super::*;
 
     #[test_log::test]
@@ -342,5 +391,24 @@ mod maitredescles_tests {
         let cle_dechiffree_slice = &cle_dechiffree.0[..];
 
         assert_eq!(cle_secrete_slice, cle_dechiffree_slice);
+    }
+
+    #[test_log::test]
+    fn test_generer_cle() {
+        let cert_ca = EnveloppeCertificat::try_from(crate::x509::messages_structs_tests::CERT_CA).unwrap();
+        let cert1_chaine = vec![crate::x509::messages_structs_tests::CERT_1, crate::x509::messages_structs_tests::CERT_INTER].join("\n");
+        let cert1 = EnveloppeCertificat::try_from(cert1_chaine.as_str()).unwrap();
+
+        let (dechiffrage, cle) = generer_cle_avec_ca(
+            vec!["DOMAINE_1"], &cert_ca, vec![&cert1]).unwrap();
+
+        debug!("Dechiffrage : {:?}", dechiffrage);
+
+        let cle_id = dechiffrage.cle_id.unwrap();
+        debug!("Cle id : {}", cle_id);
+
+        // Verifier la signature
+        let signature = dechiffrage.signature.unwrap();
+        signature.verifier_derivee(&cle.secret.0).unwrap();
     }
 }

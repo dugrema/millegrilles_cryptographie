@@ -524,7 +524,7 @@ checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
 
 [[package]]
 name = "millegrilles_cryptographie"
-version = "2024.4.7"
+version = "2024.4.8"
 dependencies = [
  "base64",
  "blake2",
