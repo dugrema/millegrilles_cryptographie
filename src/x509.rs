@@ -566,6 +566,34 @@ pub struct FingerprintPem {
     pub cert_millegrille: bool,
 }
 
+pub struct InfoIdmg {
+    pub version: u8,
+    pub expiration: DateTime<Utc>,
+    pub hachage_mh: Vec<u8>,
+}
+
+pub fn lire_idmg(idmg: &str) -> Result<InfoIdmg, Error> {
+    let val = multibase::decode(idmg)?.1;
+
+    let version = val[0];
+
+    match version {
+        0x2 => {
+            let mut val_bytes = [0u8; 4];
+            val_bytes.copy_from_slice(&val[1..5]);
+            let epoch_val = u32::from_le_bytes(val_bytes);
+            let epoch_val = epoch_val * 1000;  // Epoch en ms
+            let epoch_ts = match DateTime::from_timestamp(epoch_val as i64, 0) {
+                Some(inner) => inner,
+                None => Err(Error::Str("lire_idmg erreur DateTime::from_timestamp"))?
+            };
+            let hachage_mh = val[5..].to_vec();
+            Ok(InfoIdmg {version: 0x2, expiration: epoch_ts, hachage_mh})
+        },
+        _ => Err(Error::Str("Version idmg non supportee"))?
+    }
+}
+
 #[cfg(test)]
 pub mod messages_structs_tests {
     use super::*;
@@ -676,4 +704,11 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert!(EnveloppePrivee::from_files(&path_cert_mauvais, &path_key, &path_ca).is_err());
     }
 
+    #[test_log::test]
+    fn test_lire_idmg() {
+        let val = lire_idmg("zeYncRqEqZ6eTEmUZ8whJFuHG796eSvCTWE4M432izXrp22bAtwGm7Jf").unwrap();
+        debug!("test_lire_idmg zeYncRqEqZ6eTEmUZ8whJFuHG796eSvCTWE4M432izXrp22bAtwGm7Jf version : {}", val.version);
+        assert_eq!(0x2, val.version);
+        assert_eq!(2273267000, val.expiration.timestamp());
+    }
 }
