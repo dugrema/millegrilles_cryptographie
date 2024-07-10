@@ -582,7 +582,8 @@ pub fn lire_idmg(idmg: &str) -> Result<InfoIdmg, Error> {
             let mut val_bytes = [0u8; 4];
             val_bytes.copy_from_slice(&val[1..5]);
             let epoch_val = u32::from_le_bytes(val_bytes);
-            let epoch_val = epoch_val * 1000;  // Epoch en ms
+            // Convertir en secondes, la valeur epoch est en secondes/1000
+            let epoch_val = epoch_val * 1_000;
             let epoch_ts = match DateTime::from_timestamp(epoch_val as i64, 0) {
                 Some(inner) => inner,
                 None => Err(Error::Str("lire_idmg erreur DateTime::from_timestamp"))?
