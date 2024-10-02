@@ -40,7 +40,7 @@ impl EncryptedDocument {
         };
         match self.format {
             FormatChiffrage::MGS4 => {
-                let mut decipher = DecipherMgs4::new(&cle)?;
+                let decipher = DecipherMgs4::new(&cle)?;
                 let data = base64.decode(self.ciphertext_base64).map_err(|e| Error::String(format!("base64 decode error: {:?}", e)))?;
                 match &self.compression {
                     Some(inner) => match inner.as_str() {
@@ -123,7 +123,7 @@ mod chiffrage_mgs4_tests {
     use std::str::from_utf8;
     use super::*;
     use log::info;
-    use crate::chiffrage_cles::{Cipher, CleDechiffrageStruct, Decipher};
+    use crate::chiffrage_cles::Cipher;
 
     const CONTENU_A_CHIFFRER: &str = "Du contenu a chiffrer";
 
