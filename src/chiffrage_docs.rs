@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::maitredescles::SignatureDomaines;
 use crate::messages_structs::DechiffrageInterMillegrille;
 use serde::{Deserialize, Serialize};
-use crate::chiffrage_mgs4::{CipherMgs4, DecipherMgs4};
+use crate::chiffrage_mgs4::DecipherMgs4;
 use base64::{engine::general_purpose::STANDARD as base64, Engine as _};
 use crate::chiffrage::{CleSecrete, FormatChiffrage, formatchiffragestr};
 use crate::chiffrage_cles::{CipherResultVec, CleDechiffrageX25519Impl, Decipher};
@@ -124,6 +124,7 @@ mod chiffrage_mgs4_tests {
     use super::*;
     use log::info;
     use crate::chiffrage_cles::Cipher;
+    use crate::chiffrage_mgs4::CipherMgs4;
 
     const CONTENU_A_CHIFFRER: &str = "Du contenu a chiffrer";
 
