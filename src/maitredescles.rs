@@ -242,6 +242,7 @@ pub fn generer_cle_avec_ca<D>(domaines: std::vec::Vec<D>, ca: &EnveloppeCertific
     let dechiffrage = DechiffrageInterMillegrilleOwned {
         cle_id: Some(cle_id.to_string()),
         cles: Some(map_cles),
+        compression: None,
         format: format.to_string(),
         hachage: None,
         header: None,

@@ -69,6 +69,8 @@ pub struct DechiffrageInterMillegrille<'a> {
     pub cle_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cles: Option<FnvIndexMap<&'a str, &'a str, CONST_NOMBRE_CLES_MAX>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<&'a str>,
     pub format: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hachage: Option<&'a str>,
@@ -177,6 +179,7 @@ impl<'a> Into<DechiffrageInterMillegrilleOwned> for &DechiffrageInterMillegrille
         DechiffrageInterMillegrilleOwned {
             cle_id: match self.cle_id { Some(inner) => Some(inner.to_string()), None => None },
             cles,
+            compression: match self.compression { Some(inner) => Some(inner.to_string()), None => None },
             format: self.format.to_string(),
             hachage: match self.hachage { Some(inner) => Some(inner.to_string()), None => None },
             header: match self.header { Some(inner) => Some(inner.to_string()), None => None },
@@ -193,6 +196,8 @@ pub struct DechiffrageInterMillegrilleOwned {
     pub cle_id: Option<std::string::String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cles: Option<BTreeMap<std::string::String, std::string::String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<std::string::String>,
     pub format: std::string::String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hachage: Option<std::string::String>,
@@ -237,6 +242,7 @@ impl<'a> TryInto<DechiffrageInterMillegrille<'a>> for &'a DechiffrageInterMilleg
         Ok(DechiffrageInterMillegrille {
             cle_id: match &self.cle_id { Some(inner) => Some(inner.as_str()), None => None },
             cles,
+            compression: match &self.compression { Some(inner) => Some(inner.as_str()), None => None },
             format: self.format.as_str(),
             hachage: match &self.hachage { Some(inner) => Some(inner.as_str()), None => None },
             header: match &self.header { Some(inner) => Some(inner.as_str()), None => None },
@@ -1588,6 +1594,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         let dechiffrage = DechiffrageInterMillegrilleOwned {
             cle_id: Some(resultat_chiffrage.hachage_bytes.clone()),
             cles: Some(cles),
+            compression: None,
             format: format_str.to_string(),
             hachage: Some(resultat_chiffrage.hachage_bytes),
             header: None,

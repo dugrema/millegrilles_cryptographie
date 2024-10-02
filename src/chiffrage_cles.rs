@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use flate2::Compression;
-use flate2::write::GzEncoder;
-use flate2::read::GzDecoder;
+use flate2::write::{DeflateEncoder, GzEncoder};
+use flate2::read::{DeflateDecoder, GzDecoder};
 use std::io::{Read, Write};
 use std::sync::Arc;
 // use multibase::Base;
@@ -164,6 +164,7 @@ impl<const K: usize> Into<DechiffrageInterMillegrilleOwned> for CleChiffrageStru
         DechiffrageInterMillegrilleOwned {
             cle_id: None,
             cles: Some(cles),
+            compression: None,
             format: format.to_string(),
             hachage: None,
             header: None,
@@ -178,12 +179,14 @@ pub struct CipherResult<const K: usize> {
     pub len: usize,
     pub cles: CleChiffrageStruct<K>,
     pub hachage_bytes: String,
+    pub compression: Option<String>,
 }
 
 pub struct CipherResultVec<const K: usize> {
     pub ciphertext: std::vec::Vec<u8>,
     pub cles: CleChiffrageStruct<K>,
     pub hachage_bytes: String,
+    pub compression: Option<String>,
 }
 
 pub trait Cipher<const K: usize> {
@@ -210,7 +213,8 @@ pub trait Cipher<const K: usize> {
         Ok(CipherResultVec {
             ciphertext,
             cles: resultat.cles,
-            hachage_bytes: resultat.hachage_bytes
+            hachage_bytes: resultat.hachage_bytes,
+            compression: None,
         })
     }
 
@@ -225,7 +229,29 @@ pub trait Cipher<const K: usize> {
             compressor.finish()?
         };
 
-        self.to_vec(data_vec.as_slice())
+        let mut result = self.to_vec(data_vec.as_slice())?;
+
+        result.compression = Some("gz".into());
+
+        Ok(result)
+    }
+
+    /// Compresse le data avec Gzip avant de chiffrer.
+    fn to_deflate_vec(self, data: &[u8]) -> Result<CipherResultVec<K>, Error>
+    where Self: Sized
+    {
+        // Compresser bytes
+        let data_vec = {
+            let mut compressor = DeflateEncoder::new(std::vec::Vec::new(), Compression::default());
+            compressor.write_all(data)?;
+            compressor.finish()?
+        };
+
+        let mut result = self.to_vec(data_vec.as_slice())?;
+
+        result.compression = Some("deflate".into());
+
+        Ok(result)
     }
 }
 
@@ -255,6 +281,16 @@ pub trait Decipher {
     {
         let vec_dechiffre = self.to_vec(data)?;
         let mut decoder = GzDecoder::new(vec_dechiffre.as_slice());
+        let mut data_decompresse = Vec::new();
+        decoder.read_to_end(&mut data_decompresse)?;
+        Ok(data_decompresse)
+    }
+
+    fn deflate_to_vec(self, data: &[u8]) -> Result<Vec<u8>, Error>
+    where Self: Sized
+    {
+        let vec_dechiffre = self.to_vec(data)?;
+        let mut decoder = DeflateDecoder::new(vec_dechiffre.as_slice());
         let mut data_decompresse = Vec::new();
         decoder.read_to_end(&mut data_decompresse)?;
         Ok(data_decompresse)

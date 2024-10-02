@@ -35,6 +35,14 @@ impl Into<&str> for FormatChiffrage {
     }
 }
 
+impl Into<&str> for &FormatChiffrage {
+    fn into(self) -> &'static str {
+        match self {
+            FormatChiffrage::MGS4 => CONST_MGS4,
+        }
+    }
+}
+
 pub mod formatchiffragestr {
 
     use serde::{self, Deserialize, Serializer, Deserializer};

@@ -168,7 +168,8 @@ impl Cipher<32> for CipherMgs4 {
         Ok(CipherResult {
             len: taille_output,
             cles,
-            hachage_bytes
+            hachage_bytes,
+            compression: None,
         })
     }
 
