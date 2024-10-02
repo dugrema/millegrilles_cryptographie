@@ -25,13 +25,14 @@ pub mod chiffrage;
 pub mod serde_dates;
 #[cfg(all(feature = "alloc"))]
 pub mod maitredescles;
+#[cfg(all(feature = "alloc"))]
+pub mod chiffrage_docs;
 
 #[macro_use]
 mod macros;
 
 #[cfg(test)]
 mod samples;
-mod chiffrage_docs;
 
 // Re-exports
 pub use ed25519_dalek;
