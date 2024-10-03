@@ -10,6 +10,14 @@ use crate::chiffrage::{CleSecrete, FormatChiffrage, formatchiffragestr};
 use crate::chiffrage_cles::{CipherResultVec, CleDechiffrageX25519Impl, Decipher};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct KeyInformation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cles: Option<BTreeMap<std::string::String, std::string::String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<SignatureDomaines>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EncryptedDocument {
     pub ciphertext_base64: std::string::String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -17,13 +25,11 @@ pub struct EncryptedDocument {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compression: Option<std::string::String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cles: Option<BTreeMap<std::string::String, std::string::String>>,
+    pub cle: Option<KeyInformation>,
     #[serde(with="formatchiffragestr")]
     pub format: FormatChiffrage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<std::string::String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub signature: Option<SignatureDomaines>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verification: Option<std::string::String>,
 }
@@ -62,12 +68,13 @@ impl TryFrom<CipherResultVec<32>> for EncryptedDocument {
 
         let ciphertext_base64 = base64.encode(value.ciphertext);
 
-        let cles = if value.cles.cles_chiffrees.len() > 0 {
+        let cle = if value.cles.cles_chiffrees.len() > 0 {
             let mut cles = BTreeMap::new();
             for cle in value.cles.cles_chiffrees {
                 cles.insert(cle.fingerprint, cle.cle_chiffree);
             }
-            Some(cles)
+            let key_information = KeyInformation { cles: Some(cles), signature: None };
+            Some(key_information)
         } else {
             None
         };
@@ -76,10 +83,9 @@ impl TryFrom<CipherResultVec<32>> for EncryptedDocument {
             ciphertext_base64,
             cle_id: None,
             compression: value.compression,
-            cles,
+            cle,
             format: value.cles.format.clone(),
             nonce: value.cles.nonce,
-            signature: None,
             verification: Some(value.hachage_bytes),
         })
     }
@@ -91,15 +97,20 @@ impl<'a> TryInto<DechiffrageInterMillegrille<'a>> for &'a EncryptedDocument {
 
     fn try_into(self) -> Result<DechiffrageInterMillegrille<'a>, Error> {
 
-        let cles = match &self.cles {
+        let cles = match &self.cle {
             Some(inner) => {
-                let mut cles = FnvIndexMap::new();
-                for (cle, value) in inner {
-                    if let Err(_) = cles.insert(cle.as_str(), value.as_str()) {
-                        Err(Error::Str("try_into Erreur TryInto<DechiffrageInterMillegrille>"))?
-                    }
+                match &inner.cles {
+                    Some(inner) => {
+                        let mut cles = FnvIndexMap::new();
+                        for (cle, value) in inner {
+                            if let Err(_) = cles.insert(cle.as_str(), value.as_str()) {
+                                Err(Error::Str("try_into Erreur TryInto<DechiffrageInterMillegrille>"))?
+                            }
+                        }
+                        Some(cles)
+                    },
+                    None => None
                 }
-                Some(cles)
             },
             None => None
         };
@@ -112,7 +123,7 @@ impl<'a> TryInto<DechiffrageInterMillegrille<'a>> for &'a EncryptedDocument {
             hachage: None,
             header: None,
             nonce: match &self.nonce { Some(inner) => Some(inner.as_str()), None => None },
-            signature: match &self.signature { Some(inner) => Some(inner.clone()), None => None },
+            signature: match &self.cle { Some(inner) => inner.signature.clone(), None => None },
             verification: match &self.verification { Some(inner) => Some(inner.as_str()), None => None },
         })
     }
