@@ -2052,7 +2052,7 @@ mod messages_structs_tests {
 
         let enveloppe_core = EnveloppePrivee::from_files(
             &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert"),
-            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cle"),
+            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.key"),
             &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")
         ).unwrap();
 

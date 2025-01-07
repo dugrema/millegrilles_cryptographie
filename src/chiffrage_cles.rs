@@ -447,7 +447,7 @@ mod chiffrage_mgs4_tests {
 
         let enveloppe_1 = EnveloppePrivee::from_files(
             &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert"),
-            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cle"),
+            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.key"),
             &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")
         ).unwrap();
 
@@ -482,7 +482,7 @@ mod chiffrage_mgs4_tests {
     fn test_cle_derivee() {
         let enveloppe_1 = EnveloppePrivee::from_files(
             &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert"),
-            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cle"),
+            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.key"),
             &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")
         ).unwrap();
 

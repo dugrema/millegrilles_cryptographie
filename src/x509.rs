@@ -688,7 +688,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
     #[test_log::test]
     fn test_enveloppe_privee() {
         let path_cert = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert");
-        let path_key = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cle");
+        let path_key = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.key");
         let path_ca = PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert");
 
         // Charger enveloppe. Verifie automatiquement la correspondance.
@@ -698,7 +698,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
     #[test_log::test]
     fn test_enveloppe_privee_mismatch_cert() {
         let path_cert_mauvais = PathBuf::from("/var/opt/millegrilles/secrets/pki.instance.cert");
-        let path_key = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cle");
+        let path_key = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.key");
         let path_ca = PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert");
 
         // Charger enveloppe. Verifie automatiquement la correspondance.
