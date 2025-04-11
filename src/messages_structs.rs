@@ -1343,6 +1343,28 @@ pub mod epochseconds {
     }
 }
 
+/// Convertisseur de date i64 en epoch (secondes)
+pub mod epochmilliseconds {
+
+    use chrono::{DateTime, Utc};
+    use serde::{self, Deserialize, Serializer, Deserializer};
+
+    pub fn serialize<S>(date: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer
+    {
+        let s = date.timestamp_millis();
+        serializer.serialize_i64(s)
+    }
+
+    pub fn deserialize<'de, D>( deserializer: D ) -> Result<DateTime<Utc>, D::Error>
+    where D: Deserializer<'de>,
+    {
+        let s = i64::deserialize(deserializer)?;
+        let dt = DateTime::from_timestamp_millis(s).unwrap();
+        Ok(dt)
+    }
+}
+
 pub mod optionepochseconds {
 
     use chrono::{DateTime, Utc};
