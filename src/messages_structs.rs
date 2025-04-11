@@ -1722,6 +1722,39 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
     }
 }
 
+pub mod optionepochmilliseconds {
+
+    use chrono::{DateTime, Utc};
+    use serde::{self, Deserialize, Serializer, Deserializer};
+
+    pub fn serialize<S>(date: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer
+    {
+        match date {
+            Some(inner) => {
+                let s = inner.timestamp_millis();
+                serializer.serialize_i64(s)
+            },
+            None => {
+                serializer.serialize_none()
+            }
+        }
+    }
+
+    pub fn deserialize<'de, D>( deserializer: D ) -> Result<Option<DateTime<Utc>>, D::Error>
+    where D: Deserializer<'de>,
+    {
+        let s = Option::deserialize(deserializer)?;
+        match s {
+            Some(inner) =>  {
+                let dt = DateTime::from_timestamp_millis(inner).unwrap();
+                Ok(Some(dt))
+            },
+            None => Ok(None)
+        }
+    }
+}
+
 #[cfg(test)]
 mod messages_structs_tests {
     use super::*;
