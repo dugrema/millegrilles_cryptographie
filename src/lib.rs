@@ -1,6 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate core;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
 
 pub mod ed25519;
 pub mod error;
