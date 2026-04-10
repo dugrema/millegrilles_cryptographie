@@ -1518,7 +1518,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 
     /// Version std avec un Vec qui supporte alloc. Permet de traiter des messages de grande taille.
     #[cfg(feature = "alloc")]
-    pub fn build_into_alloc(self, buffer: &mut std::vec::Vec<u8>) -> Result<MessageMilleGrillesRef<C>, Error> {
+    pub fn build_into_alloc(self, buffer: &mut std::vec::Vec<u8>) -> Result<MessageMilleGrillesRef<'_, C>, Error> {
         let signing_key = match &self.signing_key {
             Some(inner) => inner,
             None => Err(Error::Str("Signing key manquante"))?
@@ -1594,7 +1594,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 
     #[cfg(feature = "alloc")]
     pub fn encrypt_into_alloc<P, const K: usize>(mut self, buffer: &mut std::vec::Vec<u8>, cipher: P)
-        -> Result<MessageMilleGrillesRef<C>, Error>
+        -> Result<MessageMilleGrillesRef<'_, C>, Error>
         where P: Cipher<K>
     {
         // Prendre le contenu du builder, le compresser et le chiffrer.
