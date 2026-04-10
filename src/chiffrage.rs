@@ -159,7 +159,7 @@ pub struct CleSecrete<const C: usize>(pub [u8; C]);
 impl<const C: usize> CleSecrete<C> {
     pub fn generer() -> Self {
         let mut buffer = [0u8; C];
-        let mut rnd = rand::thread_rng();
+        let mut rnd = rand::rng();
         rnd.fill(&mut buffer);
         CleSecrete (buffer)
     }
@@ -171,7 +171,7 @@ pub type CleSecreteMgs4 = CleSecrete<32>;
 /// Genere un Vec de nb_bytes aleatoires.
 pub fn random_vec(nb_bytes: usize) -> Vec<u8> {
     let mut v = vec![0; nb_bytes];
-    let mut rnd = rand::thread_rng();
+    let mut rnd = rand::rng();
     rnd.fill(v.as_mut_slice());
     v
 }
@@ -179,7 +179,7 @@ pub fn random_vec(nb_bytes: usize) -> Vec<u8> {
 /// Genere un Vec de nb_bytes aleatoires.
 pub fn random_bytes<const C: usize>() -> [u8; C] {
     let mut buffer = [0u8; C];
-    let mut rnd = rand::thread_rng();
+    let mut rnd = rand::rng();
     rnd.fill(&mut buffer);
     buffer
 }
