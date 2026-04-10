@@ -1,6 +1,16 @@
+#[cfg(feature = "std")]
 use std::fmt;
+#[cfg(feature = "std")]
 use std::str::Utf8Error;
+#[cfg(feature = "std")]
 use std::string::FromUtf8Error;
+
+#[cfg(not(feature = "std"))]
+use core::fmt;
+#[cfg(not(feature = "std"))]
+use core::str::Utf8Error;
+#[cfg(not(feature = "std"))]
+use core::convert::FromUtf8Error;
 #[cfg(feature = "chiffrage")]
 use chacha20poly1305::aead;
 #[cfg(feature = "openssl")]
@@ -42,6 +52,7 @@ impl fmt::Display for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for Error {
 }
 
@@ -87,6 +98,7 @@ impl From<serde_json::Error> for Error {
 }
 
 #[cfg(feature = "std")]
+#[cfg(feature = "std")]
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {
         Error::Io(value)
@@ -99,18 +111,21 @@ impl From<FromUtf8Error> for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl From<std::string::String> for Error {
     fn from(value: std::string::String) -> Self {
         Error::String(value)
     }
 }
 
+#[cfg(feature = "std")]
 impl Into<std::string::String> for Error {
     fn into(self) -> String {
         format!("millegrilles_cryptographie::Error {:?}", self)
     }
 }
 
+#[cfg(feature = "std")]
 impl From<&str> for Error {
     fn from(value: &str) -> Self {
         Self::String(format!("millegrilles_cryptographie::Error {:?}", value))
