@@ -5,7 +5,10 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use chrono::{prelude::*, DateTime};
+use crate::error::Error;
+use blake2::{Blake2s256, Digest};
+use chrono::{DateTime, prelude::*};
+use ed25519_dalek::{SecretKey, SigningKey};
 use log::debug;
 use multibase::{Base, encode};
 use multihash::Multihash;
@@ -13,12 +16,9 @@ use openssl::asn1::Asn1TimeRef;
 use openssl::error::ErrorStack;
 use openssl::nid::Nid;
 use openssl::pkey::{PKey, Private, Public};
+use openssl::stack::Stack;
 use openssl::x509::{X509, X509Ref, X509Req, X509ReqRef};
 use x509_parser::parse_x509_certificate;
-use blake2::{Blake2s256, Digest};
-use ed25519_dalek::{SecretKey, SigningKey};
-use openssl::stack::Stack;
-use crate::error::Error;
 
 use crate::hachages::HachageCode;
 use crate::securite::Securite;
@@ -155,9 +155,10 @@ impl EnveloppeCertificat {
 
     /// Calcule le idmg pour ce certificat
     pub fn calculer_idmg(&self) -> Result<String, Error> {
-        match self.idmg() {
-            Ok(i) => Ok(i),
-            Err(_) => calculer_idmg(&self.certificat)
+        if self.est_ca()? {
+            calculer_idmg(&self.certificat)
+        } else {
+            self.idmg()
         }
     }
 
@@ -353,6 +354,8 @@ impl EnveloppePrivee {
         let key = key.to_string();
         let ca = ca.to_string();
 
+        debug!("EnveloppePrivee.from_str cert\n{}\nca\n{}", cert, ca);
+
         let enveloppe_pub = match EnveloppeCertificat::try_from(cert) {
             Ok(inner) => inner,
             Err(e) => Err(Error::String(format!("EnveloppePrivee from_str Erreur try_from cert : {:?}", e)))?
@@ -409,15 +412,15 @@ impl EnveloppePrivee {
             Err(Error::Str("EnveloppeCertificat::verifier_correspondance Mismatch cle publique/privee"))?
         }
 
+        if ! self.enveloppe_ca.est_ca()? {
+            Err(Error::Str("Certificat CA n'est pas self-signed"))?
+        }
+
         // Verifier que le CA correspond au certificat
         let idmg_cert = self.enveloppe_pub.idmg()?;
         let idmg_ca = self.enveloppe_ca.calculer_idmg()?;
         if idmg_cert != idmg_ca {
-            Err(Error::Str("Mismatch CA et cert (idmg)"))?
-        }
-
-        if ! self.enveloppe_ca.est_ca()? {
-            Err(Error::Str("Certificat CA n'est pas self-signed"))?
+            Err(Error::String(format!("Mismatch IDMG CA ({}) et cert ({})", idmg_ca, idmg_cert)))?
         }
 
         Ok(())
@@ -598,7 +601,7 @@ pub fn lire_idmg(idmg: &str) -> Result<InfoIdmg, Error> {
 #[cfg(test)]
 pub mod messages_structs_tests {
     use super::*;
-    use log::info;
+    use log::{info, error};
 
     pub const CERT_1: &str = r#"-----BEGIN CERTIFICATE-----
 MIIClDCCAkagAwIBAgIUQuFP9EOrsQuFkWnXEH8UQNZ1EN4wBQYDK2VwMHIxLTAr
@@ -687,12 +690,16 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
 
     #[test_log::test]
     fn test_enveloppe_privee() {
-        let path_cert = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert");
-        let path_key = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.key");
-        let path_ca = PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert");
+        let path_cert = PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.cert.pem");
+        let path_key = PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.key.pem");
+        let path_ca = PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/etc/millegrille.pem");
 
         // Charger enveloppe. Verifie automatiquement la correspondance.
-        assert!(EnveloppePrivee::from_files(&path_cert, &path_key, &path_ca).is_ok());
+        let result = EnveloppePrivee::from_files(&path_cert, &path_key, &path_ca);
+        if let Err(e) = &result {
+            error!("{:?}", e);
+        }
+        assert!(result.is_ok())
     }
 
     #[test_log::test]

@@ -446,9 +446,9 @@ mod chiffrage_mgs4_tests {
         };
 
         let enveloppe_1 = EnveloppePrivee::from_files(
-            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert"),
-            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.key"),
-            &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")
+            &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.cert.pem"),
+            &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.key.pem"),
+            &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/etc/millegrille.pem")
         ).unwrap();
 
         let enveloppes = vec![
@@ -481,9 +481,9 @@ mod chiffrage_mgs4_tests {
     #[test_log::test]
     fn test_cle_derivee() {
         let enveloppe_1 = EnveloppePrivee::from_files(
-            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert"),
-            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.key"),
-            &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")
+            &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.cert.pem"),
+            &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.key.pem"),
+            &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/etc/millegrille.pem")
         ).unwrap();
 
         let cle_secrete = deriver_asymetrique_ed25519(

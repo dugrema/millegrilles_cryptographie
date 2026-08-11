@@ -2103,12 +2103,12 @@ mod messages_structs_tests {
         let routage = RoutageMessage::for_action("Test", "test");
 
         let enveloppe_ca = EnveloppeCertificat::from_file(
-            &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")).unwrap();
+            &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/etc/millegrille.pem")).unwrap();
 
         let enveloppe_core = EnveloppePrivee::from_files(
-            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.cert"),
-            &PathBuf::from("/var/opt/millegrilles/secrets/pki.core.key"),
-            &PathBuf::from("/var/opt/millegrilles/configuration/pki.millegrille.cert")
+            &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.cert.pem"),
+            &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.key.pem"),
+            &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/etc/millegrille.pem")
         ).unwrap();
 
         let chaine_pem = enveloppe_core.enveloppe_pub.chaine_pem().unwrap();
