@@ -398,6 +398,57 @@ impl EnveloppePrivee {
         EnveloppePrivee::from_str(chaine_pem_string, cle_privee_pem, ca_pem)
     }
 
+    pub fn from_str_combined<K, A>(key_cert: K, ca: A) -> Result<Self, Error>
+    where
+        K: AsRef<str>,
+        A: ToString,
+    {
+        let key_cert_str = key_cert.as_ref();
+        let ca_str = ca.to_string();
+
+        debug!("EnveloppePrivee.from_str_combined key_cert\nca\n{}", ca_str);
+
+        let enveloppe_pub = match EnveloppeCertificat::try_from(key_cert_str) {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_str_combined Erreur try_from cert : {:?}", e)))?
+        };
+        let cle_privee: PKey<Private> = match PKey::private_key_from_pem(key_cert_str.as_bytes()) {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_str_combined Erreur try_from key : {:?}", e)))?
+        };
+        let enveloppe_ca = match EnveloppeCertificat::try_from(ca_str.as_str()) {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_str_combined Erreur try_from ca : {:?}", e)))?
+        };
+
+        let chaine_pem = enveloppe_pub.chaine_pem()?;
+        let enveloppe = EnveloppePrivee {
+            enveloppe_pub: Arc::new(enveloppe_pub),
+            enveloppe_ca: Arc::new(enveloppe_ca),
+            cle_privee,
+            chaine_pem,
+            ca_pem: ca_str,
+            cle_privee_pem: key_cert_str.to_string(),
+        };
+
+        // Verifier que le CA, cert et cle privee correspondent.
+        enveloppe.verifier_correspondance()?;
+
+        Ok(enveloppe)
+    }
+
+    pub fn from_files_combined(key_cert: &PathBuf, ca: &PathBuf) -> Result<Self, Error> {
+        let key_cert_str = match read_to_string(key_cert) {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_files_combined Erreur read_to_string key_cert : {:?}", e)))?
+        };
+        let ca_pem = match read_to_string(ca) {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::String(format!("EnveloppePrivee from_files_combined Erreur read_to_string ca : {:?}", e)))?
+        };
+        EnveloppePrivee::from_str_combined(key_cert_str, ca_pem)
+    }
+
     fn verifier_correspondance(&self) -> Result<(), Error> {
         // Verifier que la cle privee correspond au certificat (pubkey)
         let pubkey_vec = self.enveloppe_pub.pubkey()?;
@@ -696,6 +747,19 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
 
         // Charger enveloppe. Verifie automatiquement la correspondance.
         let result = EnveloppePrivee::from_files(&path_cert, &path_key, &path_ca);
+        if let Err(e) = &result {
+            error!("{:?}", e);
+        }
+        assert!(result.is_ok())
+    }
+
+    #[test_log::test]
+    fn test_enveloppe_privee_combined() {
+        let path_keycert = PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/manager.pem");
+        let path_ca = PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/etc/millegrille.pem");
+
+        // Charger enveloppe. Verifie automatiquement la correspondance.
+        let result = EnveloppePrivee::from_files_combined(&path_keycert, &path_ca);
         if let Err(e) = &result {
             error!("{:?}", e);
         }
