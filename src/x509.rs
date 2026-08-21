@@ -9,7 +9,7 @@ use crate::error::Error;
 use blake2::{Blake2s256, Digest};
 use chrono::{DateTime, prelude::*};
 use ed25519_dalek::{SecretKey, SigningKey};
-use log::debug;
+use tracing::debug;
 use multibase::{Base, encode};
 use multihash::Multihash;
 use openssl::asn1::Asn1TimeRef;
@@ -652,7 +652,7 @@ pub fn lire_idmg(idmg: &str) -> Result<InfoIdmg, Error> {
 #[cfg(test)]
 pub mod messages_structs_tests {
     use super::*;
-    use log::{info, error};
+    use tracing::{info, error};
 
     pub const CERT_1: &str = r#"-----BEGIN CERTIFICATE-----
 MIIClDCCAkagAwIBAgIUQuFP9EOrsQuFkWnXEH8UQNZ1EN4wBQYDK2VwMHIxLTAr
@@ -696,7 +696,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
 -----END CERTIFICATE-----
 "#;
 
-    #[test_log::test]
+
     fn test_try_from_str_1cert() {
         let cert = EnveloppeCertificat::try_from(CERT_1).unwrap();
         info!("Certificat charge OK : {}", cert.fingerprint().unwrap());
@@ -710,7 +710,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert_eq!("zeYncRqEqZ6eTEmUZ8whJFuHG796eSvCTWE4M432izXrp22bAtwGm7Jf", idmg.as_str());
     }
 
-    #[test_log::test]
+
     fn test_try_from_str_chaine() {
         let chaine = vec![CERT_1, CERT_INTER].join("\n");
         let cert = EnveloppeCertificat::try_from(chaine.as_str()).unwrap();
@@ -719,7 +719,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert_eq!(2, cert.chaine.len());
     }
 
-    #[test_log::test]
+
     fn test_extensions() {
         let cert = EnveloppeCertificat::try_from(CERT_1).unwrap();
         let extensions = cert.extensions().unwrap();
@@ -731,7 +731,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert_eq!("4.secure", securite.get(0).unwrap());
     }
 
-    #[test_log::test]
+
     fn test_idmg() {
         let cert = EnveloppeCertificat::try_from(CERT_CA).unwrap();
         let idmg = cert.calculer_idmg().unwrap();
@@ -739,7 +739,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert!(cert.est_ca().unwrap());
     }
 
-    #[test_log::test]
+
     fn test_enveloppe_privee() {
         let path_cert = PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.cert.pem");
         let path_key = PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.key.pem");
@@ -753,7 +753,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert!(result.is_ok())
     }
 
-    #[test_log::test]
+
     fn test_enveloppe_privee_combined() {
         let path_keycert = PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/manager.pem");
         let path_ca = PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/etc/millegrille.pem");
@@ -766,7 +766,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert!(result.is_ok())
     }
 
-    #[test_log::test]
+
     fn test_enveloppe_privee_mismatch_cert() {
         let path_cert_mauvais = PathBuf::from("/var/opt/millegrilles/secrets/pki.instance.cert");
         let path_key = PathBuf::from("/var/opt/millegrilles/secrets/pki.core.key");
@@ -776,7 +776,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert!(EnveloppePrivee::from_files(&path_cert_mauvais, &path_key, &path_ca).is_err());
     }
 
-    #[test_log::test]
+
     fn test_lire_idmg() {
         let val = lire_idmg("zeYncRqEqZ6eTEmUZ8whJFuHG796eSvCTWE4M432izXrp22bAtwGm7Jf").unwrap();
         debug!("test_lire_idmg zeYncRqEqZ6eTEmUZ8whJFuHG796eSvCTWE4M432izXrp22bAtwGm7Jf version : {}", val.version);

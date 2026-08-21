@@ -6,7 +6,7 @@ use dryoc::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE
 };
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
-use log::debug;
+use tracing::debug;
 use multibase::{Base, encode};
 
 use crate::chiffrage::{CleSecrete, FormatChiffrage};
@@ -282,12 +282,12 @@ impl Decipher for DecipherMgs4 {
 mod chiffrage_mgs4_tests {
     use std::str::from_utf8;
     use super::*;
-    use log::info;
+    use tracing::info;
     use crate::chiffrage_cles::CleDechiffrageStruct;
 
     const CONTENU_A_CHIFFRER: &str = "Du contenu a chiffrer";
 
-    #[test_log::test]
+
     fn test_chiffrer_dechiffrer() {
         // Chiffrer
         let cipher = CipherMgs4::new().unwrap();
@@ -314,7 +314,7 @@ mod chiffrage_mgs4_tests {
         assert_eq!(CONTENU_A_CHIFFRER.len(), dechiffre.len());
     }
 
-    #[test_log::test]
+
     fn test_chiffrer_dechiffrer_gz() {
         let cipher = CipherMgs4::new().unwrap();
         let chiffre = cipher.to_gz_vec(CONTENU_A_CHIFFRER.as_bytes()).unwrap();

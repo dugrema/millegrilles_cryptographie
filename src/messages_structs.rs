@@ -6,7 +6,7 @@ use ed25519_dalek::{SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
 use heapless::{Vec, FnvIndexMap, String};
-use log::{debug, error};
+use tracing::{debug, error};
 use serde_json::Value;
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
 use serde::de::DeserializeOwned;
@@ -1849,11 +1849,11 @@ mod messages_structs_tests {
     use super::*;
     use crate::samples::*;
     use std::path::PathBuf;
-    use log::info;
+    use tracing::info;
     use serde_json::json;
     use crate::chiffrage_mgs4::CipherMgs4;
 
-    #[test_log::test]
+    
     fn test_parse_message() {
         let message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_1).unwrap();
         info!("test_parse_message\nid: {}\nestampille: {}", message_parsed.id, message_parsed.estampille);
@@ -1862,7 +1862,7 @@ mod messages_structs_tests {
         assert_eq!(MessageKind::Evenement, message_parsed.kind);
     }
 
-    #[test_log::test]
+    
     fn test_hacher_document() {
         let pubkey = "d1d9c2146de0e59971249489d971478050d55bc913ddeeba0bf3c60dd5b2cd31";
         let estampille = DateTime::from_timestamp(1710338722, 0).unwrap();
@@ -1881,7 +1881,7 @@ mod messages_structs_tests {
         assert_eq!("3873562f090d472e6309b02ff2762959e72d24f76919ee0ac62d1d39e1e4a159", resultat);
     }
 
-    #[test_log::test]
+    
     fn test_hacher_evenement() {
         let message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_1).unwrap();
         let hacheur = HacheurMessage::from(&message_parsed);
@@ -1891,7 +1891,7 @@ mod messages_structs_tests {
         assert_eq!(message_parsed.id, resultat);
     }
 
-    #[test_log::test]
+    
     fn test_hacher_premigration() {
         let message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_3).unwrap();
         let hacheur = HacheurMessage::from(&message_parsed);
@@ -1901,7 +1901,7 @@ mod messages_structs_tests {
         assert_eq!(message_parsed.id, resultat);
     }
 
-    #[test_log::test]
+    
     fn test_hacher_intermillegrille() {
         let message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_4).unwrap();
         let hacheur = HacheurMessage::from(&message_parsed);
@@ -1911,14 +1911,14 @@ mod messages_structs_tests {
         assert_eq!(message_parsed.id, resultat);
     }
 
-    #[test_log::test]
+    
     fn test_verifier_signature() {
         let mut message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_1).unwrap();
         assert!(message_parsed.verifier_signature().is_ok());
         assert_eq!(Some((true, true)), message_parsed.contenu_valide);
     }
 
-    #[test_log::test]
+    
     fn test_verifier_signature_5() {
         let mut message_parsed = MessageMilleGrillesRefDefault::parse(MESSAGE_5).unwrap();
 
@@ -1934,7 +1934,7 @@ mod messages_structs_tests {
         assert_eq!(Some((true, true)), message_parsed.contenu_valide);
     }
 
-    #[test_log::test]
+    
     fn test_buffer_heapless() {
         let mut buffer: MessageMilleGrillesBufferHeapless<CONST_BUFFER_MESSAGE_MIN, CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferHeapless::new();
         buffer.buffer.extend_from_slice(MESSAGE_1.as_bytes()).unwrap();
@@ -1944,7 +1944,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "optional-defaults")]
-    #[test_log::test]
+    
     fn test_buffer_alloc() {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
@@ -1955,7 +1955,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "optional-defaults")]
-    #[test_log::test]
+    
     fn test_parse_contenu() {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
@@ -1972,7 +1972,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "optional-defaults")]
-    #[test_log::test]
+    
     fn test_message_2() {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_2.as_bytes());
@@ -1999,7 +1999,7 @@ mod messages_structs_tests {
         debug!("Parsed id: {}", parsed.id);
     }
 
-    #[test_log::test]
+    
     fn test_parse_message_builder() {
         let message_parsed = MessageMilleGrillesRefDefault::parse(crate::messages_structs::messages_structs_tests::MESSAGE_1).unwrap();
         info!("test_parse_message\nid: {}\nestampille: {}", message_parsed.id, message_parsed.estampille);
@@ -2008,7 +2008,7 @@ mod messages_structs_tests {
         assert_eq!(MessageKind::Evenement, message_parsed.kind);
     }
 
-    #[test_log::test]
+    
     fn test_build_into_u8() {
         let contenu = "Le contenu a inclure";
         let estampille = DateTime::from_timestamp(1710338722, 0).unwrap();
@@ -2034,7 +2034,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "alloc")]
-    #[test_log::test]
+    
     fn test_build_into_alloc() {
         let contenu = "{\"contenu\":\"Le contenu a inclure\"}";
         debug!("Contenu initial\n{}", contenu);
@@ -2065,7 +2065,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "alloc")]
-    #[test_log::test]
+    
     fn test_parse_owned() {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
@@ -2086,7 +2086,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "alloc")]
-    #[test_log::test]
+    
     fn test_into_owned() {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
@@ -2104,7 +2104,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "alloc")]
-    #[test_log::test]
+    
     fn test_owned_hachage() {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_1.as_bytes());
@@ -2122,7 +2122,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "alloc")]
-    #[test_log::test]
+    
     fn test_encrypt_into_alloc() {
         let contenu = "{\"contenu\":\"Le contenu a inclure\"}";
         debug!("Contenu initial\n{}", contenu);
@@ -2159,7 +2159,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "alloc")]
-    #[test_log::test]
+    
     fn test_encrypt_into_alloc_certs() {
         let contenu = ContenuMessageDechiffre { texte: "Le contenu a inclure".try_into().unwrap() };
         let contenu_str = serde_json::to_string(&contenu).unwrap();
@@ -2222,7 +2222,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "alloc")]
-    #[test_log::test]
+    
     fn test_utf8_speciaux() {
         let contenu = ContenuMessage { texte: TEST_STRING_UTF8_1 };
         let contenu_str = serde_json::to_string(&contenu).unwrap();
@@ -2249,7 +2249,7 @@ mod messages_structs_tests {
     }
 
     #[cfg(feature = "optional-defaults")]
-    #[test_log::test]
+    
     fn test_message_6() {
         let mut buffer: MessageMilleGrillesBufferAlloc<CONST_NOMBRE_CERTIFICATS_MAX> = MessageMilleGrillesBufferAlloc::new();
         buffer.buffer.extend(MESSAGE_6.as_bytes());

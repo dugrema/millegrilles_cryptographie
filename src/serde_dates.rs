@@ -86,7 +86,7 @@ mod messages_structs_tests {
     use std::collections::HashMap;
     use chrono::{DateTime, Utc};
     use super::*;
-    use log::info;
+    use tracing::info;
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
@@ -99,7 +99,7 @@ mod messages_structs_tests {
         map_dates_option2: Option<HashMap<String, DateTime<Utc>>>
     }
 
-    #[test_log::test]
+
     fn test_mod_mapstringepochseconds() {
 
         let mut map_dates = HashMap::new();

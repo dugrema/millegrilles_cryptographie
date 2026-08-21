@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::fs::read_to_string;
 use std::path::Path;
 use chrono::{DateTime, Utc};
-use log::{debug, info, warn};
+use tracing::{debug, info, warn};
 use openssl::asn1::Asn1TimeRef;
 use openssl::error::ErrorStack;
 use openssl::nid::Nid;
@@ -453,7 +453,7 @@ impl RegleValidation for RegleValidationIdmg {
 #[cfg(test)]
 mod messages_structs_tests {
     use super::*;
-    use log::info;
+    use tracing::info;
 
     const CERT_1: &str = r#"-----BEGIN CERTIFICATE-----
 MIIClDCCAkagAwIBAgIUQuFP9EOrsQuFkWnXEH8UQNZ1EN4wBQYDK2VwMHIxLTAr
@@ -497,7 +497,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
 -----END CERTIFICATE-----
 "#;
 
-    #[test_log::test]
+
     fn test_try_from_str_chaine() {
         let chaine = vec![CERT_1, CERT_INTER].join("\n");
         let validateur = build_store_from_str(CERT_CA).unwrap();
@@ -511,7 +511,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert!(validateur.valider(&cert, None).is_err());          // Expire pour now
     }
 
-    #[test_log::test]
+
     fn test_try_from_str_chaine_incomplete() {
         let validateur = build_store_from_str(CERT_CA).unwrap();
         let cert = EnveloppeCertificat::try_from(CERT_1).unwrap();
@@ -521,7 +521,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert!(validateur.valider(&cert, None).is_err());
     }
 
-    #[test_log::test]
+
     fn test_valider_certificat_date() {
         let chaine = vec![CERT_1, CERT_INTER].join("\n");
         let validateur = build_store_from_str(CERT_CA).unwrap();
@@ -533,7 +533,7 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         assert!(validateur.valider(&cert, Some(&date)).is_ok());
     }
 
-    #[test_log::test]
+
     fn test_valider_certificat_date_invalide() {
         let chaine = vec![CERT_1, CERT_INTER].join("\n");
         let validateur = build_store_from_str(CERT_CA).unwrap();

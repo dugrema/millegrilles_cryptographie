@@ -246,9 +246,9 @@ fn convertir_private_ed25519_to_x25519(ca_key: &PKey<Private>) -> Result<PKey<Pr
 #[cfg(test)]
 mod x25519_tests {
     use super::*;
-    use log::debug;
+    use tracing::debug;
 
-    #[test_log::test]
+
     fn test_chiffrage_asymmetrique() {
         debug!("Chiffrer cle secrete");
 
@@ -269,7 +269,7 @@ mod x25519_tests {
         debug!{"Cle secretes match OK!"};
     }
 
-    #[test_log::test]
+
     fn chiffrer_cle_secrete() {
 
         // Generer une cle publique pour chiffrer

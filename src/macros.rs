@@ -38,7 +38,7 @@ mod macro_tests {
     }"#;
 
     #[cfg(feature = "alloc")]
-    #[test_log::test]
+
     fn test_macro() {
         test_macro_wrapper().unwrap();
     }

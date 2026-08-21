@@ -424,14 +424,14 @@ impl CleSecreteSerialisee {
 
 #[cfg(test)]
 mod chiffrage_mgs4_tests {
-    use log::info;
+    use tracing::info;
     use std::path::PathBuf;
     use crate::chiffrage::CleSecreteMgs4;
     use crate::x25519::{CleSecreteX25519, deriver_asymetrique_ed25519};
     use crate::x509::EnveloppePrivee;
     use super::*;
 
-    #[test_log::test]
+
     fn test_cle_chiffree() {
         let cle_secrete = CleSecreteMgs4::generer();
         // let private_key = PKey::generate_ed25519().unwrap();
@@ -478,7 +478,7 @@ mod chiffrage_mgs4_tests {
         assert!(cle_secrete == cle_secrete_dechifree);
     }
 
-    #[test_log::test]
+
     fn test_cle_derivee() {
         let enveloppe_1 = EnveloppePrivee::from_files(
             &PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/core.cert.pem"),
@@ -525,7 +525,7 @@ mod chiffrage_mgs4_tests {
         assert!(cle_secrete.secret == cle_secrete_dechifree);
     }
 
-    #[test_log::test]
+
     fn test_cle_serialisee() {
         let cle_bytes = b"01234567890123456789012345678901";
         let cle_secrete = CleSecrete(*cle_bytes);

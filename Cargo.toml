@@ -1,6 +1,6 @@
 [package]
 name = "millegrilles_cryptographie"
-version = "2026.4.1"
+version = "2026.4.2"
 edition = "2024"
 
 [features]
@@ -15,7 +15,8 @@ chiffrage = ['alloc', 'x509', 'rand', 'x25519', 'zeroize', 'flate2']
 
 [dependencies]
 heapless = { version = "0.8.0", features = ["serde"] }
-log = { version = "0.4.22"}
+# log = { version = "0.4.22"}
+tracing = "0.1"
 chrono = { version = "0.4.38", default-features = false }
 
 # String representations
@@ -48,6 +49,3 @@ ed25519-dalek = { version = "2.2.0", default-features = false }
 
 # x509
 x509-parser = { version = "0.18.1", optional = true }
-
-[dev-dependencies]
-test-log = "0.2.19"

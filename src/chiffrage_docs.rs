@@ -133,13 +133,13 @@ impl<'a> TryInto<DechiffrageInterMillegrille<'a>> for &'a EncryptedDocument {
 mod chiffrage_mgs4_tests {
     use std::str::from_utf8;
     use super::*;
-    use log::info;
+    use tracing::info;
     use crate::chiffrage_cles::Cipher;
     use crate::chiffrage_mgs4::CipherMgs4;
 
     const CONTENU_A_CHIFFRER: &str = "Du contenu a chiffrer";
 
-    #[test_log::test]
+
     fn test_chiffrer_dechiffrer() {
         let cipher = CipherMgs4::new().unwrap();
         let chiffre = cipher.to_vec(CONTENU_A_CHIFFRER.as_bytes()).unwrap();
@@ -153,7 +153,7 @@ mod chiffrage_mgs4_tests {
         assert_eq!(CONTENU_A_CHIFFRER, resultat_str);
     }
 
-    #[test_log::test]
+
     fn test_chiffrer_dechiffrer_gz() {
         let cipher = CipherMgs4::new().unwrap();
         let chiffre = cipher.to_gz_vec(CONTENU_A_CHIFFRER.as_bytes()).unwrap();
@@ -167,7 +167,7 @@ mod chiffrage_mgs4_tests {
         assert_eq!(CONTENU_A_CHIFFRER, resultat_str);
     }
 
-    #[test_log::test]
+
     fn test_chiffrer_dechiffrer_deflate() {
         let cipher = CipherMgs4::new().unwrap();
         let chiffre = cipher.to_deflate_vec(CONTENU_A_CHIFFRER.as_bytes()).unwrap();

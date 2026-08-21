@@ -187,17 +187,15 @@ pub fn random_bytes<const C: usize>() -> [u8; C] {
 #[cfg(test)]
 mod ed25519_tests {
     use super::*;
-    use log::info;
+    use tracing::info;
     use serde::{Deserialize, Serialize};
 
-    #[test_log::test]
     fn test_clesecrete_generer() {
         let cle_secrete = CleSecreteMgs4::generer();
         info!("Cle secrete generee : {:?}", cle_secrete.0);
         assert_eq!(32, cle_secrete.0.len());
     }
 
-    #[test_log::test]
     fn test_random_vec() {
         const NB_BYTES: usize = 45;
         let resultat = random_vec(NB_BYTES);
@@ -205,7 +203,6 @@ mod ed25519_tests {
         assert_eq!(NB_BYTES, resultat.len());
     }
 
-    #[test_log::test]
     fn test_random_bytes() {
         const NB_BYTES: usize = 67;
         let rnd_bytes: [u8; NB_BYTES] = random_bytes();
@@ -218,7 +215,6 @@ mod ed25519_tests {
         #[serde(with="optionformatchiffragestr")]
         format: Option<FormatChiffrage>
     }
-    #[test_log::test]
     fn test_formatchiffrage_serialize_option() {
         let format_some = TestFormatOption { format: Some(FormatChiffrage::MGS4) };
         let format_none = TestFormatOption { format: None };

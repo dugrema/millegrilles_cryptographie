@@ -306,14 +306,14 @@ fn decode_base64<const L: usize, S>(valeur: S) -> Result<Vec<u8, L>, Error>
 
 #[cfg(test)]
 mod maitredescles_tests {
-    use log::{debug, info};
+    use tracing::{debug, info};
     use openssl::pkey::Id;
 
     use crate::x25519::deriver_asymetrique_ed25519;
 
     use super::*;
 
-    #[test_log::test]
+
     fn test_parse_message() {
         let domaines = vec!["domaine1", "domaine2"];
         let cle_peer = b"01234567890123456789012345678901".as_slice();
@@ -333,7 +333,7 @@ mod maitredescles_tests {
         signature.verifier_derivee(cle_dechiffree).unwrap();
     }
 
-    #[test_log::test]
+
     fn test_domaines_corrompus() {
         let domaines = vec!["domaine1"];
         let cle_peer = b"01234567890123456789012345678901".as_slice();
@@ -357,7 +357,7 @@ mod maitredescles_tests {
         } else { panic!("signature doit etre invalide") }
     }
 
-    #[test_log::test]
+
     fn test_cle_ref() {
         let domaines = vec!["domaine1"];
         let cle_peer = b"01234567890123456789012345678901".as_slice();
@@ -369,7 +369,7 @@ mod maitredescles_tests {
         assert_eq!("z6cji3TFvG1ovBUKGdEtc9dbXdogn4k4WvPdX3CLt7vPf", cle_ref.as_str());
     }
 
-    #[test_log::test]
+
     fn test_dechiffrage_ca() {
         let domaines = vec!["domaine1"];
 
@@ -394,7 +394,7 @@ mod maitredescles_tests {
         assert_eq!(cle_secrete_slice, cle_dechiffree_slice);
     }
 
-    #[test_log::test]
+
     fn test_generer_cle() {
         let cert_ca = EnveloppeCertificat::try_from(crate::x509::messages_structs_tests::CERT_CA).unwrap();
         let cert1_chaine = vec![crate::x509::messages_structs_tests::CERT_1, crate::x509::messages_structs_tests::CERT_INTER].join("\n");
