@@ -218,6 +218,36 @@ impl DechiffrageInterMillegrilleOwned {
         let dechiffrage_ref: DechiffrageInterMillegrille = self.try_into()?;
         dechiffrage_ref.to_cle_dechiffrage(enveloppe_privee)
     }
+
+    fn to_cle_dechiffrage_secret(&self, cle_secrete: CleSecreteX25519)
+                                 -> Result<CleDechiffrageX25519Impl, Error>
+    {
+        // Le nonce/iv/header depend de l'algorithme mais il est toujours requis.
+        let nonce = match self.nonce.as_ref() {
+            Some(inner) => inner.clone(),
+            None => match self.header.as_ref() {
+                Some(inner) => inner.to_string(),
+                None => Err(Error::Str("Nonce/header absent"))?
+            }
+        };
+
+        // La verification depend de l'algorithme.
+        let verification = match self.verification.as_ref() {
+            Some(inner) => Some(inner.to_string()),
+            None => match self.hachage.as_ref() {
+                Some(inner) => Some(inner.to_string()),
+                None => None
+            }
+        };
+
+        Ok(CleDechiffrageX25519Impl {
+            cle_chiffree: "".to_string(),
+            cle_secrete: Some(cle_secrete),
+            format: self.format.as_str().try_into()?,
+            nonce: Some(nonce.to_string()),
+            verification,
+        })
+    }
 }
 
 impl<'a> TryInto<DechiffrageInterMillegrille<'a>> for &'a DechiffrageInterMillegrilleOwned {
@@ -696,6 +726,43 @@ impl MessageMilleGrillesOwned {
         Ok(())
     }
 
+    pub fn dechiffrer<D>(&self, enveloppe_privee: &EnveloppePrivee)
+                         -> Result<D, Error>
+    where D: DeserializeOwned
+    {
+        let dechiffrage = match self.dechiffrage.as_ref() {
+            Some(inner) => inner,
+            None => Err(Error::Str("Aucune information de dechiffrage dans le message"))?
+        };
+        let cle_dechiffrage = dechiffrage.to_cle_dechiffrage(enveloppe_privee)?;
+        let decipher = DecipherMgs4::new(&cle_dechiffrage)?;
+        let data_chiffre = base64_nopad.decode(&self.contenu)
+            .map_err(|e| Error::String(format!("MessageMilleGrillesRef.dechiffrer Erreur decodage base64 du contenu : {:?}", e)))?;
+        let data_dechiffre = match decipher.gz_to_vec(data_chiffre.as_slice()) {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::String(format!("MessageMilleGrillesRef.dechiffrer Erreur decompreesion gzip du contenu : {:?}", e)))?
+        };
+        Ok(serde_json::from_slice(data_dechiffre.as_slice())?)
+    }
+
+    pub fn dechiffrer_avec_secret<D>(&self, cle_secrete: CleSecreteX25519)
+                                     -> Result<D, Error>
+    where D: DeserializeOwned
+    {
+        let dechiffrage = match self.dechiffrage.as_ref() {
+            Some(inner) => inner,
+            None => Err(Error::Str("Aucune information de dechiffrage dans le message"))?
+        };
+        let cle_dechiffrage = dechiffrage.to_cle_dechiffrage_secret(cle_secrete)?;
+        let decipher = DecipherMgs4::new(&cle_dechiffrage)?;
+        let data_chiffre = base64_nopad.decode(&self.contenu)
+            .map_err(|e| Error::String(format!("MessageMilleGrillesRef.dechiffrer Erreur decodage base64 du contenu : {:?}", e)))?;
+        let data_dechiffre = match decipher.gz_to_vec(data_chiffre.as_slice()) {
+            Ok(inner) => inner,
+            Err(e) => Err(Error::String(format!("MessageMilleGrillesRef.dechiffrer Erreur decompreesion gzip du contenu : {:?}", e)))?
+        };
+        Ok(serde_json::from_slice(data_dechiffre.as_slice())?)
+    }
 }
 
 impl TryInto<MessageMilleGrillesBufferDefault> for MessageMilleGrillesOwned {
