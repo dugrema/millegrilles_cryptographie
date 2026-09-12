@@ -298,7 +298,7 @@ pub trait Decipher {
 }
 
 /// Trait pour recuperer les cles de chiffrage. Utilisable avec le MessageMilleGrillesBuilder.
-pub trait CleChiffrageHandler {
+pub trait CleChiffrageHandler: Send + Sync {
     /// Retourne les certificats qui peuvent etre utilises pour chiffrer une cle secrete.
     /// Devrait inclure le certificat de MilleGrille avec flag cert_millegrille==true.
     fn get_publickeys_chiffrage(&self) -> Vec<Arc<EnveloppeCertificat>>;
