@@ -178,7 +178,8 @@ impl Cipher<32> for CipherMgs4 {
 pub struct DecipherMgs4 {
     state: State,
     // header: [u8; 24],
-    buffer: [u8; CONST_TAILLE_BLOCK_MGS4],
+    // buffer: [u8; CONST_TAILLE_BLOCK_MGS4],
+    buffer: Vec<u8>,
     position_buffer: usize,
 }
 
@@ -208,7 +209,8 @@ impl DecipherMgs4 {
         header.copy_from_slice(&header_vec[0..24]);
         crypto_secretstream_xchacha20poly1305_init_pull(&mut state, &header, &key);
 
-        Ok(DecipherMgs4 { state, buffer: [0u8; CONST_TAILLE_BLOCK_MGS4], position_buffer: 0 })
+        // Ok(DecipherMgs4 { state, buffer: [0u8; CONST_TAILLE_BLOCK_MGS4], position_buffer: 0 })
+        Ok(DecipherMgs4 { state, buffer: Vec::with_capacity(CONST_TAILLE_BLOCK_MGS4), position_buffer: 0 })
     }
 }
 
@@ -227,7 +229,8 @@ impl Decipher for DecipherMgs4 {
             // Copier chunk dans le buffer
             let taille_max = CONST_TAILLE_BLOCK_MGS4 - self.position_buffer;  // Max espace restant dans buffer
             let taille_chunk = min(taille_data_restante, taille_max);
-            self.buffer[self.position_buffer..self.position_buffer+taille_chunk].copy_from_slice(&data[position_data..position_data+taille_chunk]);
+            // self.buffer[self.position_buffer..self.position_buffer + taille_chunk].copy_from_slice(&data[position_data..position_data + taille_chunk]);
+            self.buffer.extend_from_slice(&data[position_data..position_data + taille_chunk]);
             self.position_buffer += taille_chunk;
             position_data += taille_chunk;
 
@@ -244,6 +247,7 @@ impl Decipher for DecipherMgs4 {
                     Err(Error::Str("DecipherMgs4.finalize Erreur block final mauvais tag"))?
                 }
 
+                self.buffer.clear();
                 self.position_buffer = 0;  // Reset position buffer
                 position_output += TAILLE_OUTPUT;
             }
@@ -287,7 +291,7 @@ mod chiffrage_mgs4_tests {
 
     const CONTENU_A_CHIFFRER: &str = "Du contenu a chiffrer";
 
-
+    #[test]
     fn test_chiffrer_dechiffrer() {
         // Chiffrer
         let cipher = CipherMgs4::new().unwrap();
@@ -312,9 +316,10 @@ mod chiffrage_mgs4_tests {
         let output_decipher_str = from_utf8(dechiffre.as_slice()).unwrap();
         info!("Decipher len {}, contenu\n{}", dechiffre.len(), output_decipher_str);
         assert_eq!(CONTENU_A_CHIFFRER.len(), dechiffre.len());
+        assert_eq!(CONTENU_A_CHIFFRER, from_utf8(dechiffre.as_slice()).unwrap());
     }
 
-
+    #[test]
     fn test_chiffrer_dechiffrer_gz() {
         let cipher = CipherMgs4::new().unwrap();
         let chiffre = cipher.to_gz_vec(CONTENU_A_CHIFFRER.as_bytes()).unwrap();
@@ -338,6 +343,7 @@ mod chiffrage_mgs4_tests {
         let output_decipher_str = from_utf8(dechiffre.as_slice()).unwrap();
         info!("Decipher len {}, contenu\n{}", dechiffre.len(), output_decipher_str);
         assert_eq!(CONTENU_A_CHIFFRER.len(), dechiffre.len());
+        assert_eq!(CONTENU_A_CHIFFRER, from_utf8(dechiffre.as_slice()).unwrap());
     }
 
 }
