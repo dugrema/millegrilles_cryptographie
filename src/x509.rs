@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::fs::read_to_string;
+use std::fs::{read, read_to_string};
 use std::ops::Deref;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::error::Error;
@@ -283,7 +283,7 @@ impl EnveloppeCertificat {
         Ok(vec)
     }
 
-    pub fn from_file(cert: &PathBuf) -> Result<Self, Error> {
+    pub fn from_file(cert: &Path) -> Result<Self, Error> {
         let chaine_pem_string = match read_to_string(cert) {
             Ok(inner) => inner,
             Err(e) => Err(Error::String(format!("EnveloppePrivee from_files Erreur read_to_string cert : {:?}", e)))?
@@ -649,6 +649,15 @@ pub fn lire_idmg(idmg: &str) -> Result<InfoIdmg, Error> {
     }
 }
 
+pub fn parse_encrypted_private_key(pem_path: &Path, password: &str) -> Result<PKey<Private>, Error> {
+    let pem_data = read(pem_path)?;
+    let pkey: PKey<Private> = PKey::private_key_from_pem_passphrase(
+        pem_data.as_slice(),
+        password.as_bytes()
+    )?;
+    Ok(pkey)
+}
+
 #[cfg(test)]
 pub mod messages_structs_tests {
     use super::*;
@@ -696,6 +705,16 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
 -----END CERTIFICATE-----
 "#;
 
+    // #[test]
+    // fn test_load_encrypted_key() {
+    //     let path = PathBuf::from("/home/mathieu/tas/dev/millegrilles/dev1/secrets/certissuer/ca.pem");
+    //     let enveloppe = EnveloppeCertificat::from_file(path.as_path()).unwrap();
+    //     let password = "DUMMY";
+    //     let result = parse_encrypted_private_key(path.as_path(), password).unwrap();
+    //     let public_key = enveloppe.certificat.public_key().unwrap();
+    //     // Ensure the decrypted key corresponds to the certificate
+    //     assert!(result.public_eq(&public_key))
+    // }
 
     fn test_try_from_str_1cert() {
         let cert = EnveloppeCertificat::try_from(CERT_1).unwrap();
