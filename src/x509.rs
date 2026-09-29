@@ -303,7 +303,7 @@ impl TryFrom<&str> for EnveloppeCertificat {
         };
         let certificat = match chaine.get(0) {
             Some(inner) => inner.to_owned(),
-            None => Err(String::from("EnveloppeCertificat::try_from Erreur aucuns cerificats"))?
+            None => Err(String::from("EnveloppeCertificat::try_from Erreur aucuns certificats"))?
         };
 
         Ok(Self {certificat, chaine, millegrille: None})
