@@ -15,7 +15,6 @@ chiffrage = ['alloc', 'x509', 'rand', 'x25519', 'zeroize', 'flate2']
 
 [dependencies]
 heapless = { version = "0.9.3", features = ["serde"] }
-# log = { version = "0.4.22"}
 tracing = "0.1"
 chrono = { version = "0.4.45", default-features = false }
 
@@ -34,7 +33,7 @@ blake2 = { version = "0.11.0", default-features = false }
 sha2 = { version = "0.11.1", default-features = false }
 
 # openssl (x509)
-openssl = { version = "0.10.66", features = ["vendored"], optional = true }
+openssl = { version = "0.10.82", features = ["vendored"], optional = true }
 
 # Encryption
 rand = { version = "0.10.4", optional = true }
