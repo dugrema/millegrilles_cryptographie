@@ -1,4 +1,4 @@
-use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305};
+use chacha20poly1305::{aead::{Aead, KeyInit, Nonce}, ChaCha20Poly1305};
 use dryoc::classic::crypto_sign_ed25519;
 use openssl::derive::Deriver;
 use openssl::pkey::{Id, PKey, Private, Public};
@@ -145,12 +145,15 @@ pub fn chiffrer_asymmetrique_ed25519(cle_secrete: &[u8], cle_publique: &PKey<Pub
     let cle_secrete_intermediaire = deriver_asymetrique_ed25519_peer(&cle_publique_x25519, &cle_peer)?;
 
     // Utiliser chacha20poly1305 pour dechiffrer la cle secrete
-    let aead = ChaCha20Poly1305::new(cle_secrete_intermediaire.0[..].into());
+    let aead = ChaCha20Poly1305::new_from_slice(&cle_secrete_intermediaire.0[..]).expect("key size is 32");
 
     // Note : on utilise la cle publique du peer (valeur random) hachee en blake2s comme nonce (12 bytes) pour le chiffrage
-    let mut nonce = [0u8; 32];  // 32 bytes Blake2s
-    hacher_bytes_into(&cle_peer_public_raw[..], HachageCode::Blake2s256, &mut nonce);
-    let cle_secrete_chiffree_tag = match aead.encrypt(nonce[0..12].into(), cle_secrete.as_ref()) {
+    let mut hash = [0u8; 32];  // 32 bytes Blake2s-256
+    hacher_bytes_into(&cle_peer_public_raw[..], HachageCode::Blake2s256, &mut hash);
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&hash[0..12]);
+    let nonce = Nonce::<ChaCha20Poly1305>::from(nonce);
+    let cle_secrete_chiffree_tag = match aead.encrypt(&nonce, cle_secrete.as_ref()) {
         Ok(m) => m,
         Err(e) => Err(Error::Chacha20poly1350(e))?
     };
@@ -186,12 +189,15 @@ pub fn dechiffrer_asymmetrique_ed25519(cle_chiffree: &[u8], cle_privee: &PKey<Pr
         // Trouver cle secrete de dechiffrage de la cle privee
         let cle_secrete_intermediaire = deriver_asymetrique_ed25519_peer(&cle_peer_intermediaire, &cle_privee)?;
         // Utiliser chacha20poly1305 pour dechiffrer la cle secrete
-        let aead = ChaCha20Poly1305::new(cle_secrete_intermediaire.0[..].into());
+        let aead = ChaCha20Poly1305::new_from_slice(&cle_secrete_intermediaire.0[..]).expect("key size is 32");
         // Note : on utilise la cle publique du peer (valeur random) comme nonce pour le chiffrage
 
-        let mut nonce = [0u8; 32];  // 32 bytes Blake2s
-        hacher_bytes_into(&cle_peer_public_raw[..], HachageCode::Blake2s256, &mut nonce);
-        let m = aead.decrypt(nonce[0..12].into(), cle_secrete_chiffree_tag.as_ref())?;
+        let mut hash = [0u8; 32];  // 32 bytes Blake2s-256
+        hacher_bytes_into(&cle_peer_public_raw[..], HachageCode::Blake2s256, &mut hash);
+        let mut nonce = [0u8; 12];
+        nonce.copy_from_slice(&hash[0..12]);
+        let nonce = Nonce::<ChaCha20Poly1305>::from(nonce);
+        let m = aead.decrypt(&nonce, cle_secrete_chiffree_tag.as_ref())?;
         let mut cle_secrete_dechiffree = CleSecrete([0u8; 32]);
         cle_secrete_dechiffree.0.copy_from_slice(&m[..]);
 
