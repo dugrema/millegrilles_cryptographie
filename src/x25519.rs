@@ -249,6 +249,7 @@ mod x25519_tests {
     use tracing::debug;
 
 
+    #[test]
     fn test_chiffrage_asymmetrique() {
         debug!("Chiffrer cle secrete");
 
@@ -266,10 +267,10 @@ mod x25519_tests {
         let cle_secrete_rederivee = deriver_asymetrique_ed25519_peer(&peer_x25519, &cle_ca).unwrap();
 
         assert_eq!(derived_key.secret.0, cle_secrete_rederivee.0);
-        debug!{"Cle secretes match OK!"};
+        debug!{"Cle secretes match OK!"}
     }
 
-
+    #[test]
     fn chiffrer_cle_secrete() {
 
         // Generer une cle publique pour chiffrer
