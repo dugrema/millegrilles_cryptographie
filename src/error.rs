@@ -10,7 +10,7 @@ use core::fmt;
 #[cfg(not(feature = "std"))]
 use core::str::Utf8Error;
 #[cfg(not(feature = "std"))]
-use core::convert::FromUtf8Error;
+use alloc::string::FromUtf8Error;
 #[cfg(feature = "chiffrage")]
 use chacha20poly1305::aead;
 #[cfg(feature = "openssl")]

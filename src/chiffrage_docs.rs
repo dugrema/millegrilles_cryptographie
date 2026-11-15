@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use heapless::FnvIndexMap;
+use heapless::index_map::FnvIndexMap;
 use crate::error::Error;
 use crate::maitredescles::SignatureDomaines;
 use crate::messages_structs::DechiffrageInterMillegrille;

@@ -5,7 +5,8 @@ use chrono::{DateTime, Utc};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
-use heapless::{Vec, FnvIndexMap, String};
+use heapless::{Vec, String};
+use heapless::index_map::FnvIndexMap;
 use tracing::{debug, error};
 use serde_json::Value;
 use base64::{engine::general_purpose::STANDARD_NO_PAD as base64_nopad, Engine as _};
@@ -1251,7 +1252,7 @@ impl<'a> HacheurMessage<'a> {
 
         match String::from_str(hachage_str) {
             Ok(inner) => Ok(inner),
-            Err(()) => Err(Error::Str("HacheurMessage::hacher:E5"))?
+            Err(_) => Err(Error::Str("HacheurMessage::hacher:E5"))?
         }
     }
 
@@ -1745,7 +1746,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
         };
 
         // Ecrire dans buffer
-        buffer.resize_default(buffer.capacity()).map_err(|()| Error::Str("build_into Erreur resize default"))?;
+        buffer.resize_default(buffer.capacity()).map_err(|_| Error::Str("build_into Erreur resize default"))?;
         let taille = match serde_json_core::to_slice(&message_ref, buffer) {
             Ok(taille) => taille,
             Err(e) => {
@@ -1806,7 +1807,7 @@ impl<'a, const C: usize> MessageMilleGrillesBuilder<'a, C> {
 
         match String::from_str(signature_str) {
             Ok(inner) => Ok(inner),
-            Err(()) => Err(Error::Str("signer:E2"))?
+            Err(_) => Err(Error::Str("signer:E2"))?
         }
     }
 }

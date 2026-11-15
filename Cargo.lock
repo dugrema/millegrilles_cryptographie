@@ -532,17 +532,6 @@ dependencies = [
 
 [[package]]
 name = "heapless"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad"
-dependencies = [
- "hash32",
- "serde",
- "stable_deref_trait",
-]
-
-[[package]]
-name = "heapless"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25ba4bd83f9415b58b4ed8dc5714c76e626a105be4646c02630ad730ad3b5aa4"
@@ -622,7 +611,7 @@ dependencies = [
  "dryoc",
  "ed25519-dalek",
  "flate2",
- "heapless 0.8.0",
+ "heapless",
  "hex",
  "multibase",
  "multihash",
@@ -938,7 +927,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d51e6795fbc00a1b26d78c7a0dbda143215d9dd0ee27c8a63ae0e1ccd6b83706"
 dependencies = [
- "heapless 0.9.3",
+ "heapless",
  "ryu",
  "serde",
 ]
