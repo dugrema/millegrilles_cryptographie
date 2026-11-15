@@ -50,3 +50,4 @@ pub use rand;
 pub use flate2;
 pub use blake2;
 pub use sha2;
+pub use dryoc;
