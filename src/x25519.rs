@@ -1,5 +1,5 @@
 use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305};
-use dryoc::classic::crypto_sign_ed25519;
+use curve25519_dalek::edwards::CompressedEdwardsY;
 use openssl::derive::Deriver;
 use openssl::pkey::{Id, PKey, Private, Public};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -109,22 +109,15 @@ pub fn deriver_asymetrique_ed25519_peer(peer_x25519: &PKey<Public>, private_key_
         _ => Err(Error::Str("deriver_asymetrique_ed25519_peer Mauvais type de cle private, doit etre ED25519 ou X25519"))?
     };
 
-    let mut deriver = match Deriver::new(&cle_privee_pkey) {
-        Ok(inner) => inner,
-        Err(e) => Err(Error::Openssl(e))?
-    };
-    if let Err(e) = deriver.set_peer(peer_x25519) {
-        Err(Error::Openssl(e))?
-    }
+    let mut deriver = Deriver::new(&cle_privee_pkey).map_err(Error::Openssl)?;
+    deriver.set_peer(peer_x25519).map_err(Error::Openssl)?;
     let mut cle_secrete = [0u8; 32];
-    if let Err(e) = deriver.derive(&mut cle_secrete) {
-        Err(Error::Openssl(e))?
-    }
+    deriver.derive(&mut cle_secrete).map_err(Error::Openssl)?;
 
     // Hacher la cle avec blake2s-256
-    let mut cle_hachee = [0u8; 32];  // 32 bytes Blake2s
+    let mut cle_hachee = [0u8; 32];
     hacher_bytes_into(&cle_secrete[..], HachageCode::Blake2s256, &mut cle_hachee);
-    cle_secrete.copy_from_slice(&cle_hachee[0..32]); // Override cle secrete avec version hachee
+    cle_secrete.copy_from_slice(&cle_hachee[0..32]);
 
     Ok(CleSecrete(cle_secrete))
 }
@@ -208,20 +201,17 @@ pub fn convertir_public_ed25519_to_x25519_openssl(public_key: &PKey<Public>) -> 
 }
 
 pub fn convertir_public_ed25519_to_x25519(cle_publique_bytes: &[u8]) -> Result<ClePubliqueX25519, Error> {
-    // Copier cle en input pour avoir buffer de taille connue
-    let mut cle_public_ref = crypto_sign_ed25519::PublicKey::default();
-    cle_public_ref.clone_from_slice(&cle_publique_bytes[0..32]);
+    // Ed25519 public key is the compressed Edwards Y-coordinate.
+    // Convert to X25519 Montgomery u-coordinate via EdwardsPoint::to_montgomery().
+    // curve25519-dalek handles the birational map u = (y + 1) / (1 - y) internally.
 
-    // Buffer pour cle convertie
-    let mut cle_publique_x25519: crypto_sign_ed25519::PublicKey = ClePubliqueX25519::default();
+    let compressed = CompressedEdwardsY::from_slice(cle_publique_bytes)
+        .map_err(|_| Error::Str("Ed25519 public key must be exactly 32 bytes"))?;
+    let edwards_point = compressed.decompress()
+        .ok_or_else(|| Error::Str("Ed25519 public key does not decompress to a valid Edwards point"))?;
+    let montgomery = edwards_point.to_montgomery();
 
-    // Convertir
-    crypto_sign_ed25519::crypto_sign_ed25519_pk_to_curve25519(
-        &mut cle_publique_x25519,
-        &cle_public_ref
-    )?;
-
-    Ok(cle_publique_x25519)
+    Ok(montgomery.to_bytes())
 }
 
 fn convertir_private_ed25519_to_x25519(ca_key: &PKey<Private>) -> Result<PKey<Private>, Error> {
@@ -229,15 +219,19 @@ fn convertir_private_ed25519_to_x25519(ca_key: &PKey<Private>) -> Result<PKey<Pr
         Ok(inner) => inner,
         Err(e) => Err(Error::Openssl(e))?
     };
-    let mut cle_privee_ca_sk: crypto_sign_ed25519::SecretKey = [0u8; 64];
-    cle_privee_ca_sk[0..32].copy_from_slice(&cle_privee_ca[..]);
-    let mut cle_privee_ca_x25519 = [0u8; 32];
-    crypto_sign_ed25519::crypto_sign_ed25519_sk_to_curve25519(
-        &mut cle_privee_ca_x25519,
-        &cle_privee_ca_sk
-    );
 
-    match PKey::private_key_from_raw_bytes(&cle_privee_ca_x25519, Id::X25519) {
+    // OpenSSL Ed25519 raw private key: first 32 bytes = seed, last 32 bytes = public key.
+    // X25519 clamping: zero bottom 3 bits, clear bit 3, clear top bit, set top 2 bits.
+    // Note: This produces a deterministic X25519 key from the Ed25519 seed.
+    // The public key must be properly converted via Edwards->Montgomery point mapping.
+    let mut scalar = [0u8; 32];
+    scalar.copy_from_slice(&cle_privee_ca[..32]);
+
+    scalar[0] &= 248;          // Clear bottom 3 bits
+    scalar[31] &= 127;         // Clear top bit (bit 255)
+    scalar[31] |= 64;          // Set bit 248 (high bit of last byte)
+
+    match PKey::private_key_from_raw_bytes(&scalar, Id::X25519) {
         Ok(inner) => Ok(inner),
         Err(e) => Err(Error::Openssl(e))
     }
@@ -289,5 +283,44 @@ mod x25519_tests {
 
         assert_eq!(cle_secrete, cle_dechiffree.0);
         debug!("Cle secrete dechiffree OK");
+    }
+
+    // --- Tests pour la conversion Ed25519 -> X25519 ---
+
+    #[test]
+    fn test_conversion_publique_deterministe() {
+        // La meme cle Ed25519 doit toujours produire le meme X25519
+        let openssl_key = PKey::generate_ed25519().unwrap();
+        let ed25519_pk_bytes = openssl_key.raw_public_key().unwrap();
+
+        let x25519_1 = convertir_public_ed25519_to_x25519(&ed25519_pk_bytes).unwrap();
+        let x25519_2 = convertir_public_ed25519_to_x25519(&ed25519_pk_bytes).unwrap();
+        assert_eq!(x25519_1, x25519_2, "La conversion doit etre deterministe");
+    }
+
+    #[test]
+    fn test_conversion_publique_openssl() {
+        // Test avec une cle genere par OpenSSL (comme en production)
+        let openssl_ed25519 = PKey::generate_ed25519().unwrap();
+        let pk_bytes = openssl_ed25519.raw_public_key().unwrap();
+        let x25519_pk = convertir_public_ed25519_to_x25519(&pk_bytes).unwrap();
+
+        // Verifier que la cle X25519 est bien 32 bytes
+        assert_eq!(x25519_pk.len(), 32);
+
+        // Verifier que les bytes differents de zero (cle Ed25519 aleatoire)
+        assert!(x25519_pk.iter().any(|&b| b != 0));
+    }
+
+    #[test]
+    fn test_conversion_publique_differentes_cles() {
+        // Deux cles Ed25519 differentes doivent produire deux cles X25519 differentes
+        let pk1 = PKey::generate_ed25519().unwrap();
+        let pk2 = PKey::generate_ed25519().unwrap();
+
+        let x1 = convertir_public_ed25519_to_x25519(&pk1.raw_public_key().unwrap()).unwrap();
+        let x2 = convertir_public_ed25519_to_x25519(&pk2.raw_public_key().unwrap()).unwrap();
+
+        assert_ne!(x1, x2, "Deux cles differentes doivent donner des resultats differents");
     }
 }
