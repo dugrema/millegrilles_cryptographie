@@ -48,3 +48,5 @@ pub use chrono;
 pub use x509_parser;
 pub use rand;
 pub use flate2;
+pub use blake2;
+pub use sha2;
