@@ -201,7 +201,14 @@ impl EnveloppeCertificat {
         Ok(resultat)
     }
 
+    /// Returns true for the (self-signed) ROOT CA
     pub fn est_ca(&self) -> Result<bool, Error> {
+        // Check that the certificate has the CA attribute
+        let extensions = self.extensions()?;
+        if ! extensions.is_ca {
+            return Ok(false);
+        }
+        // Ensure this is a self-signed certificate
         let subject = self.subject()?;
         let issuer = self.issuer()?;
         Ok(subject == issuer)
@@ -536,6 +543,7 @@ fn parse_x509(cert: &[u8]) -> Result<ExtensionsMilleGrille, Error> {
     let mut user_id = None;
     let mut delegation_globale = None;
     let mut delegation_domaines = None;
+    let mut is_ca = false;
 
     for ext in extensions {
         debug!("Extension ext = {:?}", ext);
@@ -550,7 +558,13 @@ fn parse_x509(cert: &[u8]) -> Result<ExtensionsMilleGrille, Error> {
         }
     }
 
-    Ok(ExtensionsMilleGrille {exchanges, roles, domaines, user_id, delegation_globale, delegation_domaines})
+    // Verifier l'extension basicConstraints (OID 2.5.29.19)
+    if let Ok(Some(basic_constraints)) = cert_parsed.basic_constraints() {
+        is_ca = basic_constraints.value.ca;
+    }
+    debug!("basicConstraints is_ca = {}", is_ca);
+
+    Ok(ExtensionsMilleGrille {exchanges, roles, domaines, user_id, delegation_globale, delegation_domaines, is_ca})
 }
 
 #[derive(Clone, Debug)]
@@ -561,6 +575,8 @@ pub struct ExtensionsMilleGrille {
     pub user_id: Option<String>,
     pub delegation_globale: Option<String>,
     pub delegation_domaines: Option<Vec<String>>,
+    /// basicConstraints CA flag extracted from the X.509 extension.
+    pub is_ca: bool,
 }
 
 impl ExtensionsMilleGrille {
@@ -801,5 +817,103 @@ MJyb/Ppa2C6PraSVPgJGWKl+/5S5tBr58KFNg+0H94CH4d1VCPwI
         debug!("test_lire_idmg zeYncRqEqZ6eTEmUZ8whJFuHG796eSvCTWE4M432izXrp22bAtwGm7Jf version : {}", val.version);
         assert_eq!(0x2, val.version);
         assert_eq!(2273267000, val.expiration.timestamp());
+    }
+
+    // Certs with basicConstraints CA:TRUE (real CA)
+    pub const CERT_CA_WITH_BC: &str = r#"-----BEGIN CERTIFICATE-----
+MIIBqzCCAVCgAwIBAgIUO+kPwljgxGzePAOWIUCt5o1azq8wCgYIKoZIzj0EAwIw
+JDEQMA4GA1UECgwHVGVzdCBDQTEQMA4GA1UEAwwHVGVzdCBDQTAeFw0yNjExMTUx
+NzA5NTVaFw0yNzExMTUxNzA5NTVaMCQxEDAOBgNVBAoMB1Rlc3QgQ0ExEDAOBgNV
+BAMMB1Rlc3QgQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATrCwmLrOo8lTYn
++ZNVtCO37o7SstirEgOu2DSJklfua6a5RfVF6pteGO+4pk59Ds9dLPym5YqSyHAS
+O4oizuN/o2AwXjAdBgNVHQ4EFgQUZWv5z8JRDc0h/n0zYu3k97uekZcwHwYDVR0j
+BBgwFoAUZWv5z8JRDc0h/n0zYu3k97uekZcwDwYDVR0TAQH/BAUwAwEB/zALBgNV
+HQ8EBAMCAQYwCgYIKoZIzj0EAwIDSQAwRgIhAOXyaZzNNizOPhsddzLnUtq2mrRf
+7hcOuX1FUkgdnc17AiEA+sHeJjdbAsNkDR7vNrVWYPzN8bf30wNXhekMZ9t9NHg=
+-----END CERTIFICATE-----
+"#;
+
+    // Leaf cert signed by CA with basicConstraints CA:FALSE
+    pub const CERT_LEAF_WITH_BC: &str = r#"-----BEGIN CERTIFICATE-----
+MIIBpzCCAU2gAwIBAgIUEUO7vLXdI8V2owaF5Rr0TX/ZeBEwCgYIKoZIzj0EAwIw
+JDEQMA4GA1UECgwHVGVzdCBDQTEQMA4GA1UEAwwHVGVzdCBDQTAeFw0yNjExMTUx
+NzEwMDRaFw0yNzExMTUxNzEwMDRaMCcxETAPBgNVBAoMCFRlc3QgT3JnMRIwEAYD
+VQQDDAlUZXN0IExlYWYwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATmXt0soDth
+GVYIWreygSmmSy9Z9ACgJ6vJi91QdY0VRjrbiO2oWCmfi1wbt+aC+w03nVyQRMRP
+P8RN7/2HjCqUo1owWDAJBgNVHRMEAjAAMAsGA1UdDwQEAwIFoDAdBgNVHQ4EFgQU
+IWY9gVrMOEPVSdgUsZgjRzq1ftEwHwYDVR0jBBgwFoAUZWv5z8JRDc0h/n0zYu3k
+97uekZcwCgYIKoZIzj0EAwIDSAAwRQIhAIQVag/Lv7hA3vU1muvw3JZH3dCjadIF
+8bfz028B11RFAiAztjvwIfzmv6iBAhKdHlnGgb1fXD3vdaLNbKHWgGoIZQ==
+-----END CERTIFICATE-----
+"#;
+
+    // Self-signed cert with basicConstraints CA:FALSE (same subject == issuer but NOT a CA)
+    pub const CERT_SELF_SIGNED_CA_FALSE: &str = r#"-----BEGIN CERTIFICATE-----
+MIIBljCCATugAwIBAgICEjQwCgYIKoZIzj0EAwIwLDEUMBIGA1UECgwLU2VsZiBT
+aWduZWQxFDASBgNVBAMMC1NlbGYgU2lnbmVkMB4XDTI2MTExNTE3MTIzOVoXDTI3
+MTExNTE3MTIzOVowLDEUMBIGA1UECgwLU2VsZiBTaWduZWQxFDASBgNVBAMMC1Nl
+bGYgU2lnbmVkMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEiiF5cziTgq1AEmSI
+ZEcfgBQ44V0e4e9IQZ6j6xRjXcxk2LizBRuJZSQwfTjl5u/KrC97Ka7GnNw/R5Mu
+XkkcSqNNMEswHQYDVR0OBBYEFKcuLuHgK+xoKA9bgMWOVQNMf5l0MB8GA1UdIwQY
+MBaAFKcuLuHgK+xoKA9bgMWOVQNMf5l0MAkGA1UdEwQCMAAwCgYIKoZIzj0EAwID
+SQAwRgIhAJh26Ug4NKYwzM2yqw4cjhUxcZrXvoVpO7cwREohb13BAiEA977181VE
+8n8Ftg8HihwymtbguzzgbsVpTLCOyakJqZ4=
+-----END CERTIFICATE-----
+"#;
+
+    // Self-signed cert with NO basicConstraints extension at all
+    pub const CERT_SELF_SIGNED_NO_BC: &str = r#"-----BEGIN CERTIFICATE-----
+MIIBdDCCARugAwIBAgIUS0sRCebmTjjDCrWrVIdf0KA7GM0wCgYIKoZIzj0EAwIw
+KTESMBAGA1UECgwJTm8gQkMgT3JnMRMwEQYDVQQDDApObyBCQyBDZXJ0MB4XDTI2
+MTExNTE3MTAzM1oXDTI3MTExNTE3MTAzM1owKTESMBAGA1UECgwJTm8gQkMgT3Jn
+MRMwEQYDVQQDDApObyBCQyBDZXJ0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE
+YtPsNLeXKQtR9W7NkTiigZqmoPNE7sKrBa4qqNromCo/C7m/qbeVWTInnQqvxEPw
+Q+EEScR1Q6gOcy92jhtEPqMhMB8wHQYDVR0OBBYEFEpDD8MMXvXUkdLuS3ynL/27
+X7M6MAoGCCqGSM49BAMCA0cAMEQCICx9WNlYOj5G9I6RKvpm2U7j19YK7T7m5/bv
+CxR9J0e6AiB3ywVZfsWla4cqZuc+lSJgrXgzYf/DIafo1fFdE/3AlQ==
+-----END CERTIFICATE-----
+"#;
+
+    #[test]
+    fn test_est_ca_true() {
+        let cert = EnveloppeCertificat::try_from(CERT_CA_WITH_BC).unwrap();
+        assert!(cert.est_ca().unwrap());
+        let extensions = cert.extensions().unwrap();
+        assert!(extensions.is_ca);
+    }
+
+    #[test]
+    fn test_est_ca_leaf_false() {
+        let cert = EnveloppeCertificat::try_from(CERT_LEAF_WITH_BC).unwrap();
+        assert!(!cert.est_ca().unwrap());
+        let extensions = cert.extensions().unwrap();
+        assert!(!extensions.is_ca);
+    }
+
+    #[test]
+    fn test_est_ca_self_signed_ca_false() {
+        // This cert is self-signed (subject == issuer) but has CA:FALSE.
+        // The old implementation would incorrectly return true.
+        let cert = EnveloppeCertificat::try_from(CERT_SELF_SIGNED_CA_FALSE).unwrap();
+        let subject = cert.subject().unwrap();
+        let issuer = cert.issuer().unwrap();
+        assert_eq!(subject, issuer, "cert is self-signed");
+        assert!(!cert.est_ca().unwrap(), "self-signed with CA:FALSE must not be a CA");
+        let extensions = cert.extensions().unwrap();
+        assert!(!extensions.is_ca);
+    }
+
+    #[test]
+    fn test_est_ca_self_signed_no_bc() {
+        // This cert is self-signed (subject == issuer) with NO basicConstraints extension.
+        // The old implementation would incorrectly return true.
+        // New implementation defaults to false when extension is missing.
+        let cert = EnveloppeCertificat::try_from(CERT_SELF_SIGNED_NO_BC).unwrap();
+        let subject = cert.subject().unwrap();
+        let issuer = cert.issuer().unwrap();
+        assert_eq!(subject, issuer, "cert is self-signed");
+        assert!(!cert.est_ca().unwrap(), "cert without basicConstraints must not be treated as a CA");
+        let extensions = cert.extensions().unwrap();
+        assert!(!extensions.is_ca);
     }
 }
